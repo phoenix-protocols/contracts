@@ -10,6 +10,7 @@ import {AggregatorV3Interface} from "@chainlink/contracts/v0.8/shared/interfaces
 
 import "../interfaces/IPUSDOracle.sol";
 import "./PUSDOracleStorage.sol";
+import "../interfaces/IUniswapOracle.sol";
 
 /**
  * @title PUSDOracleUpgradeable
@@ -22,19 +23,11 @@ import "./PUSDOracleStorage.sol";
  *
  * Main features:
  * - Token/USD price: Get from Chainlink
- * - Token/PUSD price: External updates
+ * - Token/PUSD price: Get from Uniswap Oracle
  * - PUSD/USD price: Calculated result
  * - Depeg detection and automatic pause
  */
-contract PUSDOracleUpgradeable is
-    Initializable,
-    AccessControlUpgradeable,
-    PausableUpgradeable,
-    ReentrancyGuardUpgradeable,
-    UUPSUpgradeable,
-    IPUSDOracle,
-    PUSDOracleStorage
-{
+contract PUSDOracleUpgradeable is Initializable, AccessControlUpgradeable, PausableUpgradeable, ReentrancyGuardUpgradeable, UUPSUpgradeable, IPUSDOracle, PUSDOracleStorage {
     /* ========== initialize ========== */
 
     /// @custom:oz-upgrades-unsafe-allow constructor
@@ -73,25 +66,38 @@ contract PUSDOracleUpgradeable is
     /**
      * @notice Add supported Token
      */
-    function addToken(address token, address usdFeed) external onlyRole(DEFAULT_ADMIN_ROLE) {
-        require(token != address(0) && usdFeed != address(0), "Invalid addresses");
+    function addToken(address token, address usdFeed, address pusdOracle) external onlyRole(DEFAULT_ADMIN_ROLE) {
+        require(token != address(0) && usdFeed != address(0) && pusdOracle != address(0), "Invalid addresses");
         require(tokens[token].usdFeed == address(0), "Token already exists");
 
         // Verify USD price source
         AggregatorV3Interface feed = AggregatorV3Interface(usdFeed);
-        (, int256 price,, uint256 updatedAt,) = feed.latestRoundData();
+        (, int256 price, , uint256 updatedAt, ) = feed.latestRoundData();
+
+        IUniswapOracle pusdPairOracle = IUniswapOracle(pusdOracle);
+        (uint256 pusdPrice, uint256 timestamp) = pusdPairOracle.twapPrice(token);
+        require(pusdPrice > 0, "Invalid PUSD oracle");
 
         // Emit debug event to record all key values
         emit DebugPriceCheck(price, updatedAt, block.timestamp, maxPriceAge);
 
         // Separate checks to provide clearer error messages
         require(price > 0, "Price must be positive");
-        require(block.timestamp >= updatedAt, "Price timestamp in future");
+        require(block.timestamp >= updatedAt && block.timestamp >= timestamp, "Price timestamp in future");
         require(block.timestamp - updatedAt <= maxPriceAge, "Price data too old");
+        require(block.timestamp - timestamp <= maxPriceAge, "PUSD price too old");
 
-        tokens[token] = TokenConfig({usdFeed: usdFeed, tokenPusdPrice: 0, lastUpdated: 0});
+        tokens[token] = TokenConfig({usdFeed: usdFeed, pusdOracle: pusdOracle, tokenPusdPrice: pusdPrice, lastUpdated: block.timestamp});
 
         supportedTokens.push(token);
+
+        // Recalculate PUSD/USD global price
+        _updatePUSDUSDPrice();
+
+        // Automatic depeg check
+        _checkDepegInternal();
+
+        emit TokenPUSDPriceUpdated(token, pusdPrice, 0);
         emit TokenAdded(token, usdFeed);
     }
 
@@ -100,20 +106,19 @@ contract PUSDOracleUpgradeable is
     /**
      * @notice Update Token/PUSD price and recalculate PUSD/USD price
      * @param token Token contract address
-     * @param tokenPusdPrice Token/PUSD price in 18 decimal format
      * @dev Example parameters:
      *      - 1 USDT = 2 PUSD, input: 2000000000000000000
      *      - 1 USDT = 1.5 PUSD, input: 1500000000000000000
      *      - In JavaScript: ethers.parseEther("2") or ethers.parseEther("1.5")
      */
-    function updateTokenPUSDPrice(address token, uint256 tokenPusdPrice)
-        external
-        onlyRole(PRICE_UPDATER_ROLE)
-        nonReentrant
-    {
+    function updateTokenPUSDPrice(address token) external onlyRole(PRICE_UPDATER_ROLE) nonReentrant {
         TokenConfig storage config = tokens[token];
         require(config.usdFeed != address(0), "Token not supported");
+        IUniswapOracle pusdPairOracle = IUniswapOracle(config.pusdOracle);
+        (uint256 tokenPusdPrice, uint256 timestamp) = pusdPairOracle.twapPrice(token);
         require(tokenPusdPrice > 0, "Invalid price");
+        require(block.timestamp >= timestamp, "Price timestamp in future");
+        require(block.timestamp - timestamp <= maxPriceAge, "PUSD price too old");
 
         uint256 oldPrice = config.tokenPusdPrice;
         config.tokenPusdPrice = tokenPusdPrice;
@@ -131,26 +136,26 @@ contract PUSDOracleUpgradeable is
     /**
      * @notice Batch update prices and recalculate PUSD/USD price
      * @param tokenList Array of token contract addresses
-     * @param prices Array of Token/PUSD prices, each price in 18 decimal format
      * @dev Example parameters:
      *      - prices = ["2000000000000000000", "1500000000000000000"]
      *      - In JavaScript: [ethers.parseEther("2"), ethers.parseEther("1.5")]
      */
-    function batchUpdateTokenPUSDPrices(address[] calldata tokenList, uint256[] calldata prices)
-        external
-        onlyRole(PRICE_UPDATER_ROLE)
-        nonReentrant
-    {
-        require(tokenList.length == prices.length && tokenList.length > 0, "Invalid input");
+    function batchUpdateTokenPUSDPrices(address[] calldata tokenList) external onlyRole(PRICE_UPDATER_ROLE) nonReentrant {
+        require(tokenList.length > 0, "Invalid input");
 
         for (uint256 i = 0; i < tokenList.length; i++) {
             TokenConfig storage config = tokens[tokenList[i]];
-            if (config.usdFeed != address(0) && prices[i] > 0) {
+            if (config.usdFeed != address(0)) {
+                IUniswapOracle pusdPairOracle = IUniswapOracle(config.pusdOracle);
+                (uint256 tokenPusdPrice, uint256 timestamp) = pusdPairOracle.twapPrice(tokenList[i]);
+                require(tokenPusdPrice > 0, "Invalid price");
+                require(block.timestamp >= timestamp, "Price timestamp in future");
+                require(block.timestamp - timestamp <= maxPriceAge, "PUSD price too old");
                 uint256 oldPrice = config.tokenPusdPrice;
-                config.tokenPusdPrice = prices[i];
+                config.tokenPusdPrice = tokenPusdPrice;
                 config.lastUpdated = block.timestamp;
 
-                emit TokenPUSDPriceUpdated(tokenList[i], prices[i], oldPrice);
+                emit TokenPUSDPriceUpdated(tokenList[i], tokenPusdPrice, oldPrice);
             }
         }
 
@@ -180,7 +185,7 @@ contract PUSDOracleUpgradeable is
 
             // Get Token/USD price
             AggregatorV3Interface usdFeed = AggregatorV3Interface(config.usdFeed);
-            (, int256 tokenUsdPriceInt,, uint256 usdTimestamp,) = usdFeed.latestRoundData();
+            (, int256 tokenUsdPriceInt, , uint256 usdTimestamp, ) = usdFeed.latestRoundData();
 
             // Skip invalid or expired USD price
             if (tokenUsdPriceInt <= 0 || block.timestamp - usdTimestamp > maxPriceAge) {
@@ -265,7 +270,7 @@ contract PUSDOracleUpgradeable is
 
         // Get price from Chainlink
         AggregatorV3Interface usdFeed = AggregatorV3Interface(config.usdFeed);
-        (, int256 tokenUsdPriceInt,, uint256 usdTimestamp,) = usdFeed.latestRoundData();
+        (, int256 tokenUsdPriceInt, , uint256 usdTimestamp, ) = usdFeed.latestRoundData();
 
         require(tokenUsdPriceInt > 0, "Invalid USD price");
         require(block.timestamp - usdTimestamp <= maxPriceAge, "USD price too old");
@@ -308,11 +313,7 @@ contract PUSDOracleUpgradeable is
         address, // token - currently unused, reserved for future extension
         uint256 pusdPrice,
         TokenConfig storage
-    )
-        internal
-        pure
-        returns (uint256)
-    {
+    ) internal pure returns (uint256) {
         // Calculate price deviation (deviation from $1.00)
         uint256 pegPrice = 1e18; // $1.00
         uint256 deviation;
@@ -396,11 +397,7 @@ contract PUSDOracleUpgradeable is
         return supportedTokens;
     }
 
-    function getTokenInfo(address token)
-        external
-        view
-        returns (address usdFeed, uint256 tokenPusdPrice, uint256 lastUpdated)
-    {
+    function getTokenInfo(address token) external view returns (address usdFeed, uint256 tokenPusdPrice, uint256 lastUpdated) {
         TokenConfig storage config = tokens[token];
         return (config.usdFeed, config.tokenPusdPrice, config.lastUpdated);
     }
@@ -408,10 +405,7 @@ contract PUSDOracleUpgradeable is
     /* ========== Management functions ========== */
 
     // Update system parameters
-    function updateSystemParameters(uint256 _maxPriceAge, uint256 _heartbeatInterval)
-        external
-        onlyRole(DEFAULT_ADMIN_ROLE)
-    {
+    function updateSystemParameters(uint256 _maxPriceAge, uint256 _heartbeatInterval) external onlyRole(DEFAULT_ADMIN_ROLE) {
         require(_maxPriceAge > 0 && _maxPriceAge <= 3600 * 48, "Invalid price age"); // Maximum 48 hours
         require(_heartbeatInterval > 0 && _heartbeatInterval <= 86400, "Invalid interval"); // Maximum 1 day
 
@@ -420,10 +414,7 @@ contract PUSDOracleUpgradeable is
     }
 
     // Update depeg thresholds
-    function updateDepegThresholds(uint256 _depegThreshold, uint256 _recoveryThreshold)
-        external
-        onlyRole(DEFAULT_ADMIN_ROLE)
-    {
+    function updateDepegThresholds(uint256 _depegThreshold, uint256 _recoveryThreshold) external onlyRole(DEFAULT_ADMIN_ROLE) {
         require(_depegThreshold > _recoveryThreshold, "Invalid thresholds");
         require(_depegThreshold <= 2000, "Depeg threshold too high"); // Maximum 20%
 

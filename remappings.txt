@@ -2,3 +2,5 @@ forge-std/=lib/forge-std/src/
 @openzeppelin/contracts=lib/openzeppelin-contracts/contracts
 @openzeppelin/contracts-upgradeable/=lib/openzeppelin-contracts-upgradeable/contracts/
 @chainlink/contracts=lib/chainlink-brownie-contracts/contracts/src
+"v3-core/=lib/v3-core/"
+"@uniswap/v3-core/=lib/v3-core/"

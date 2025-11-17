@@ -7,6 +7,7 @@ interface IPUSDOracle {
     // Token management
     struct TokenConfig {
         address usdFeed; // Chainlink Token/USD price source
+        address pusdOracle; // Token/PUSD oracle address
         uint256 tokenPusdPrice; // Token/PUSD price (18 decimal places)
         uint256 lastUpdated; // Last update time
     }
@@ -25,12 +26,12 @@ interface IPUSDOracle {
     /* ========== Core Functions ========== */
 
     // ----------- Token management -----------
-    function addToken(address token, address usdFeed) external;
+    function addToken(address token, address usdFeed, address pusdOracle) external;
 
     // ----------- Price updates -----------
-    function updateTokenPUSDPrice(address token, uint256 tokenPusdPrice) external;
+    function updateTokenPUSDPrice(address token) external;
 
-    function batchUpdateTokenPUSDPrices(address[] calldata tokenList, uint256[] calldata prices) external;
+    function batchUpdateTokenPUSDPrices(address[] calldata tokenList) external;
 
     // ----------- Price queries -----------
     function getPUSDUSDPrice() external view returns (uint256 price, uint256 timestamp);
@@ -41,10 +42,7 @@ interface IPUSDOracle {
 
     function getSupportedTokens() external view returns (address[] memory);
 
-    function getTokenInfo(address token)
-        external
-        view
-        returns (address usdFeed, uint256 tokenPusdPrice, uint256 lastUpdated);
+    function getTokenInfo(address token) external view returns (address usdFeed, uint256 tokenPusdPrice, uint256 lastUpdated);
 
     // ----------- Depeg & maintenance -----------
     function checkPUSDDepeg() external;
