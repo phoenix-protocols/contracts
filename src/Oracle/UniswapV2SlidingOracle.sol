@@ -119,7 +119,7 @@ contract UniswapV2SlidingOracle is UniswapV2SlidingOracleStorage {
     }
 
     // returns TWAP price of 1 tokenIn in terms of tokenOut, with 1e18 precision
-    function twapPrice(address tokenIn, address tokenOut) external view returns (uint256 price1e18) {
+    function twapPrice1e18(address tokenIn, address tokenOut) external view returns (uint256 price1e18) {
         address pair = UniswapV2Library.pairFor(factory, tokenIn, tokenOut);
         Observation storage firstObservation = _firstObservation(pair);
 
