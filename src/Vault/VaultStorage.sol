@@ -4,8 +4,8 @@ pragma solidity ^0.8.20;
 contract VaultStorage {
     /* ========== Struct Definitions ========== */
     struct WithdrawalRequest {
-        address asset;      // 资产地址
-        uint256 amount;     // 提取数量
+        address asset;      // Asset address
+        uint256 amount;     // Withdrawal amount
     }
 
     /* ========== Event Definitions ========== */
@@ -50,7 +50,7 @@ contract VaultStorage {
 
     /* ========== Timelock withdrawal related ========== */
 
-    WithdrawalRequest[] public pendingWithdrawalRequests;   // 待处理的提取请求数组
+    WithdrawalRequest[] public pendingWithdrawalRequests;   // Pending withdrawal requests
     address public pendingWithdrawalTo;                     // Pending withdrawal target address
     uint256 public withdrawalUnlockTime;                    // Withdrawal unlock time
 
