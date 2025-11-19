@@ -15,14 +15,12 @@ abstract contract FarmStorage is IFarm {
     IPUSD public pusdToken; // PUSD stablecoin contract
     IyPUSD public ypusdToken; // yPUSD yield token contract
     IVault public vault; // Fund vault contract
+    address public _nftManager; // NFT Manager contract address
 
     /* ========== Permission Roles ========== */
 
     bytes32 public constant PAUSER_ROLE = keccak256("PAUSER_ROLE");
     bytes32 public constant OPERATOR_ROLE = keccak256("OPERATOR_ROLE"); // Operations admin role (APY/fees/configuration)
-
-    // User address => Array of staking records
-    mapping(address => StakeRecord[]) public userStakeRecords;
 
     mapping(address => UserAssetInfo) public userAssets;
 

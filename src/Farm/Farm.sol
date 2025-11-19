@@ -13,6 +13,7 @@ import "../interfaces/IyPUSD.sol";
 import "../interfaces/IVault.sol";
 import {IFarm} from "../interfaces/IFarm.sol";
 import {FarmStorage} from "./FarmStorage.sol";
+import {NFTManager} from "../token/NFTManager/NFTManager.sol";
 
 /**
  * @title FarmUpgradeable
@@ -136,8 +137,9 @@ contract FarmUpgradeable is Initializable, AccessControlUpgradeable, ReentrancyG
         require(pusdToken.balanceOf(msg.sender) >= pusdAmount, "Insufficient PUSD balance");
 
         // Calculate required asset amount for withdrawal (reverse calculation through Oracle)
-        uint256 assetAmount = vault.getPUSDAssetValue(asset, pusdAmount);
+        (uint256 assetAmount, uint256 referenceTimestamp) = vault.getPUSDAssetValue(asset, pusdAmount);
         require(assetAmount > 0, "Invalid withdrawal amount");
+        require(block.timestamp - referenceTimestamp <= HEALTH_CHECK_TIMEOUT, "Oracle data outdated");
 
         // Check if Vault has sufficient asset balance
         (uint256 vaultBalance, ) = vault.getTVL(asset);
@@ -147,7 +149,8 @@ contract FarmUpgradeable is Initializable, AccessControlUpgradeable, ReentrancyG
 
         // Calculate withdrawal fee (based on PUSD amount)
         uint256 pusdFee = (pusdAmount * withdrawFeeRate) / 10000;
-        uint256 assetFee = vault.getPUSDAssetValue(asset, pusdFee);
+        (uint256 assetFee, uint256 feeReferenceTimestamp) = vault.getPUSDAssetValue(asset, pusdFee);
+        require(block.timestamp - feeReferenceTimestamp <= HEALTH_CHECK_TIMEOUT, "Oracle data outdated");
         uint256 netAssetAmount = assetAmount - assetFee;
 
         // Burn user's PUSD
@@ -179,7 +182,7 @@ contract FarmUpgradeable is Initializable, AccessControlUpgradeable, ReentrancyG
 
     /**
      * @notice Exchange PUSD to yPUSD
-     * @dev 1:1 exchange, yPUSD automatically generates 8% APY yield
+     * @dev Exchange PUSD to yPUSD with Oracle price check
      * Farm contract directly handles exchange logic to avoid complex inter-contract calls
      * @param pusdAmount PUSD amount
      */
@@ -189,9 +192,13 @@ contract FarmUpgradeable is Initializable, AccessControlUpgradeable, ReentrancyG
         // Check user PUSD balance
         require(pusdToken.balanceOf(msg.sender) >= pusdAmount, "Insufficient PUSD balance");
 
+        // Get equivalent yPUSD amount from Vault for oracle data freshness check
+        (uint256 ypusdAmount, uint256 referenceTimestamp) = vault.getPUSDAssetValue(address(ypusdToken), pusdAmount);
+        require(block.timestamp - referenceTimestamp <= HEALTH_CHECK_TIMEOUT, "Oracle data outdated");
+
         // Farm directly handles exchange: 1. Burn PUSD, 2. Mint yPUSD
         pusdToken.burn(msg.sender, pusdAmount);
-        ypusdToken.mint(msg.sender, pusdAmount); // 1:1 exchange
+        ypusdToken.mint(msg.sender, ypusdAmount);
 
         // Update user statistics
         UserAssetInfo storage userInfo = userAssets[msg.sender];
@@ -200,7 +207,7 @@ contract FarmUpgradeable is Initializable, AccessControlUpgradeable, ReentrancyG
         // Update transaction volume statistics
         totalVolumeUSD += pusdAmount;
 
-        emit TokenExchange(msg.sender, pusdAmount, pusdAmount, true);
+        emit TokenExchangePUSDToYPUSD(msg.sender, pusdAmount, ypusdAmount, true);
     }
 
     /**
@@ -215,18 +222,21 @@ contract FarmUpgradeable is Initializable, AccessControlUpgradeable, ReentrancyG
         // Check user yPUSD balance
         require(ypusdToken.balanceOf(msg.sender) >= ypusdAmount, "Insufficient yPUSD balance");
 
+        // Get equivalent PUSD amount from Vault for oracle data freshness check
+        (uint256 pusdAmount, uint256 referenceTimestamp) = vault.getTokenPUSDValue(address(pusdToken), ypusdAmount);
+        require(block.timestamp - referenceTimestamp <= HEALTH_CHECK_TIMEOUT, "Oracle data outdated");
+
         // Farm directly handles exchange: 1. Burn yPUSD, 2. Mint PUSD
         ypusdToken.burn(msg.sender, ypusdAmount);
-        pusdToken.mint(msg.sender, ypusdAmount); // 1:1 exchange
+        pusdToken.mint(msg.sender, pusdAmount);
 
         // Update user statistics
         UserAssetInfo storage userInfo = userAssets[msg.sender];
         userInfo.lastActionTime = block.timestamp;
 
         // Update transaction volume statistics
-        totalVolumeUSD += ypusdAmount;
-
-        emit TokenExchange(msg.sender, ypusdAmount, ypusdAmount, false);
+        totalVolumeUSD += pusdAmount;
+        emit TokenExchangeYPUSDToPUSD(msg.sender, ypusdAmount, pusdAmount, false);
     }
 
     /**
@@ -248,33 +258,15 @@ contract FarmUpgradeable is Initializable, AccessControlUpgradeable, ReentrancyG
         // Check if user has authorized sufficient PUSD to Farm contract
         require(IERC20(address(pusdToken)).allowance(msg.sender, address(this)) >= amount, "Insufficient PUSD allowance. Please approve Farm contract first");
 
-        // Directly burn PUSD from user address to avoid contract token holding risks
-        pusdToken.burn(msg.sender, amount);
+        // Directly transfer PUSD from user address to Vault contract
+        pusdToken.transferFrom(msg.sender, address(vault), amount);
 
         // Set reward multiplier based on lock period
         uint16 multiplier = lockPeriodMultipliers[lockPeriod];
 
-        // Try to reuse an inactive stake slot first
-        StakeRecord[] storage stakes = userStakeRecords[msg.sender];
-        stakeId = type(uint256).max; // Use max value to indicate not found
-
-        for (uint256 i = 0; i < stakes.length; i++) {
-            if (!stakes[i].active) {
-                // Reuse this inactive slot
-                stakes[i] = StakeRecord({amount: amount, startTime: block.timestamp, lockPeriod: lockPeriod, lastClaimTime: block.timestamp, rewardMultiplier: multiplier, active: true});
-                stakeId = i;
-                break;
-            }
-        }
-
-        // If no inactive slot found, create new record
-        if (stakeId == type(uint256).max) {
-            // Check user stake quantity limit only when creating new slot
-            require(stakes.length < maxStakesPerUser, "Maximum active stakes reached. Please unstake an existing position first or use a different address");
-
-            stakes.push(StakeRecord({amount: amount, startTime: block.timestamp, lockPeriod: lockPeriod, lastClaimTime: block.timestamp, rewardMultiplier: multiplier, active: true}));
-            stakeId = stakes.length - 1;
-        }
+        // Record stake in NFT Manager contract
+        NFTManager nftManager = NFTManager(_nftManager);
+        uint256 tokenId = nftManager.mintStakeNFT(msg.sender, amount, uint64(lockPeriod), multiplier, 0);
 
         // Update total staked amount
         totalStaked += amount;
@@ -285,33 +277,35 @@ contract FarmUpgradeable is Initializable, AccessControlUpgradeable, ReentrancyG
         // Update user operation time
         UserAssetInfo storage userInfo = userAssets[msg.sender];
         userInfo.lastActionTime = block.timestamp;
+        userInfo.tokenIds.push(tokenId);
 
-        emit StakeOperation(msg.sender, stakeId, amount, lockPeriod, true);
+        emit StakeOperation(msg.sender, tokenId, amount, lockPeriod, true);
     }
 
     /**
      * @notice Renew stake
      * @dev After stake unlock, can choose new lock period to continue staking
-     * @param stakeId Stake record ID to renew
+     * @param tokenId Stake record ID (NFT tokenId)
      * @param compoundRewards Whether to compound rewards into stake
      */
-    function renewStake(uint256 stakeId, bool compoundRewards) external nonReentrant whenNotPaused {
-        require(stakeId < userStakeRecords[msg.sender].length, "Invalid stake ID");
-
-        StakeRecord storage stakeRecord = userStakeRecords[msg.sender][stakeId];
-        require(stakeRecord.active, "Stake record not found or inactive");
-        require(block.timestamp >= stakeRecord.startTime + stakeRecord.lockPeriod, "Still in lock period");
+    function renewStake(uint256 tokenId, bool compoundRewards) external nonReentrant whenNotPaused {
+        NFTManager nftManager = NFTManager(_nftManager);
+        (, uint64 startTime, uint64 lockPeriod, , , bool active, ) = nftManager.getStakeRecord(tokenId);
+        require(active, "Stake record not found or inactive");
+        require(block.timestamp >= startTime + lockPeriod, "Stake still in lock period");
 
         // Call internal function directly to avoid code duplication
-        _executeRenewal(stakeId, compoundRewards);
+        _executeRenewal(tokenId, compoundRewards);
     }
 
     /**
      * @notice Internal function to execute renewal
      * @dev Core logic extracted from renewStake to avoid code duplication
      */
-    function _executeRenewal(uint256 stakeId, bool compoundRewards) internal {
-        StakeRecord storage stakeRecord = userStakeRecords[msg.sender][stakeId];
+    function _executeRenewal(uint256 tokenId, bool compoundRewards) internal {
+        NFTManager nftManager = NFTManager(_nftManager);
+        (uint256 amount, uint256 startTime, uint256 lockPeriod, uint64 lastClaimTime, uint256 rewardMultiplier, bool active, uint256 pendingReward) = nftManager.getStakeRecord(tokenId);
+        StakeRecord memory stakeRecord = StakeRecord({amount: amount, startTime: startTime, lockPeriod: lockPeriod, lastClaimTime: lastClaimTime, rewardMultiplier: rewardMultiplier, active: active, pendingReward: pendingReward});
 
         // Calculate rewards for this stake
         uint256 reward = _calculateStakeReward(stakeRecord);
@@ -901,6 +895,12 @@ contract FarmUpgradeable is Initializable, AccessControlUpgradeable, ReentrancyG
         withdrawFeeRate = uint16(_withdrawFeeRate);
 
         emit FeeRatesUpdated(_depositFeeRate, _withdrawFeeRate);
+    }
+
+    function setNFTManager(address nftManager_) external onlyRole(OPERATOR_ROLE) {
+        require(nftManager_ != address(0), "Invalid NFT manager address");
+        _nftManager = nftManager_;
+        emit NFTManagerUpdated(nftManager_);
     }
 
     /**

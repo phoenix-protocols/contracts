@@ -18,7 +18,7 @@ interface IVault {
 
     function getTokenPUSDValue(address asset, uint256 amount) external view returns (uint256 pusdAmount, uint256 referenceTimestamp);
 
-    function getPUSDAssetValue(address asset, uint256 pusdAmount) external view returns (uint256 amount);
+    function getPUSDAssetValue(address asset, uint256 pusdAmount) external view returns (uint256 amount, uint256 referenceTimestamp);
 
     function pause() external view returns (bool);
 

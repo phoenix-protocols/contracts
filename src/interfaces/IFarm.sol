@@ -8,6 +8,7 @@ interface IFarm {
     struct UserAssetInfo {
         uint256 totalDeposited;
         uint256 lastActionTime;
+        uint256[] tokenIds;
     }
 
     /* ========== DAO Staking Pool - Each stake recorded independently ========== */
@@ -18,6 +19,7 @@ interface IFarm {
         uint256 lastClaimTime;
         uint16 rewardMultiplier;
         bool active;
+        uint256 pendingReward;
     }
 
     // Stake detail structure for paginated queries
@@ -43,12 +45,11 @@ interface IFarm {
 
     // General asset operation events (deposit/withdraw)
     // true=deposit, false=withdraw
-    event AssetOperation(
-        address indexed user, address indexed asset, uint256 amount, uint256 netAmount, bool isDeposit
-    );
-    // Token exchange events (PUSD ↔ rPUSD)
-    // true=PUSD→rPUSD, false=rPUSD→PUSD
-    event TokenExchange(address indexed user, uint256 fromAmount, uint256 toAmount, bool isPUSDToRPUSD);
+    event AssetOperation(address indexed user, address indexed asset, uint256 amount, uint256 netAmount, bool isDeposit);
+    // Token exchange events (PUSD ↔ yPUSD)
+    // true=PUSD→yPUSD, false=yPUSD→PUSD
+    event TokenExchangePUSDToYPUSD(address indexed user, uint256 fromAmount, uint256 toAmount, bool isPUSDToYPUSD);
+    event TokenExchangeYPUSDToPUSD(address indexed user, uint256 fromAmount, uint256 toAmount, bool isPUSDToYPUSD);
 
     // Fee rate update events
     event FeeRatesUpdated(uint256 depositFee, uint256 withdrawFee);
@@ -61,31 +62,16 @@ interface IFarm {
     event APYUpdated(uint256 oldAPY, uint256 newAPY, uint256 timestamp);
     // Staking renewal events (renewal/reinvestment)
     // true=compound rewards, false=claim rewards
-    event StakeRenewal(
-        address indexed user,
-        uint256 stakeId,
-        uint256 newLockPeriod,
-        uint256 rewardAmount,
-        uint256 newTotalAmount,
-        bool isCompounded
-    );
+    event StakeRenewal(address indexed user, uint256 stakeId, uint256 newLockPeriod, uint256 rewardAmount, uint256 newTotalAmount, bool isCompounded);
 
     // System configuration update events
-    event SystemConfigUpdated(
-        uint256 oldMinDeposit,
-        uint256 newMinDeposit,
-        uint256 oldMinLock,
-        uint256 newMinLock,
-        uint256 oldMaxStakes,
-        uint256 newMaxStakes,
-        uint256 oldMaxHistory,
-        uint256 newMaxHistory
-    );
+    event SystemConfigUpdated(uint256 oldMinDeposit, uint256 newMinDeposit, uint256 oldMinLock, uint256 newMinLock, uint256 oldMaxStakes, uint256 newMaxStakes, uint256 oldMaxHistory, uint256 newMaxHistory);
 
     // Multiplier configuration events
     event MultiplierUpdated(uint256 indexed lockPeriod, uint16 oldMultiplier, uint16 newMultiplier);
     event LockPeriodAdded(uint256 indexed lockPeriod, uint16 multiplier);
     event LockPeriodRemoved(uint256 indexed lockPeriod);
+    event NFTManagerUpdated(address indexed nftManager);
 
     /* ========== Core External Functions ========== */
 
@@ -107,45 +93,17 @@ interface IFarm {
 
     function claimAllStakeRewards() external returns (uint256 totalReward);
 
-    function getStakeInfo(address account, uint256 queryType, uint256 stakeId, uint256 amount)
-        external
-        view
-        returns (uint256 result, string memory reason);
+    function getStakeInfo(address account, uint256 queryType, uint256 stakeId, uint256 amount) external view returns (uint256 result, string memory reason);
 
     function setAPY(uint256 newAPY) external;
 
-    function getSupportedLockPeriodsWithMultipliers()
-        external
-        view
-        returns (uint256[] memory lockPeriods, uint16[] memory multipliers);
+    function getSupportedLockPeriodsWithMultipliers() external view returns (uint256[] memory lockPeriods, uint16[] memory multipliers);
 
-    function getUserInfo(address user)
-        external
-        view
-        returns (
-            uint256 pusdBalance,
-            uint256 ypusdBalance,
-            uint256 totalDeposited,
-            uint256 totalStakedAmount,
-            uint256 totalStakeRewards,
-            uint256 activeStakeCount
-        );
+    function getUserInfo(address user) external view returns (uint256 pusdBalance, uint256 ypusdBalance, uint256 totalDeposited, uint256 totalStakedAmount, uint256 totalStakeRewards, uint256 activeStakeCount);
 
-    function getStakeDetails(address user, uint256 stakeId)
-        external
-        view
-        returns (
-            StakeRecord memory stakeRecord,
-            uint256 pendingReward,
-            uint256 unlockTime,
-            bool isUnlocked,
-            uint256 remainingTime
-        );
+    function getStakeDetails(address user, uint256 stakeId) external view returns (StakeRecord memory stakeRecord, uint256 pendingReward, uint256 unlockTime, bool isUnlocked, uint256 remainingTime);
 
-    function getUserStakeDetails(address user, uint256 offset, uint256 limit, bool activeOnly, uint256 lockPeriod)
-        external
-        view
-        returns (StakeDetail[] memory stakeDetails, uint256 totalCount, bool hasMore);
+    function getUserStakeDetails(address user, uint256 offset, uint256 limit, bool activeOnly, uint256 lockPeriod) external view returns (StakeDetail[] memory stakeDetails, uint256 totalCount, bool hasMore);
 
     function getSystemHealth() external view returns (uint256 totalTVL, uint256 totalPUSDMarketCap);
 

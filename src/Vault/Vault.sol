@@ -499,13 +499,13 @@ contract Vault is Initializable, AccessControlUpgradeable, PausableUpgradeable, 
      * @param pusdAmount PUSD amount (6 decimal places)
      * @return amount Corresponding asset amount
      */
-    function getPUSDAssetValue(address asset, uint256 pusdAmount) external view returns (uint256 amount) {
+    function getPUSDAssetValue(address asset, uint256 pusdAmount) external view returns (uint256 amount, uint256 referenceTimestamp) {
         require(supportedAssets[asset], "Vault: Unsupported asset");
         require(pusdAmount >= 0, "Vault: Amount must be greater than 0");
         require(oracleManager != address(0), "Vault: Oracle not set");
 
         // Must get price from Oracle, fail if no price
-        (uint256 tokenPusdPrice, ) = IPUSDOracle(oracleManager).getTokenPUSDPrice(asset);
+        (uint256 tokenPusdPrice, uint256 lastTimeStamp) = IPUSDOracle(oracleManager).getTokenPUSDPrice(asset);
         require(tokenPusdPrice > 0, "Vault: Invalid token price");
 
         // Get asset decimal places
@@ -514,6 +514,7 @@ contract Vault is Initializable, AccessControlUpgradeable, PausableUpgradeable, 
         // Calculate asset amount: pusdAmount * (10 ** (assetDecimals + 12)) / tokenPusdPrice
         // This is the reverse calculation of getTokenPUSDValue
         amount = (pusdAmount * (10 ** (assetDecimals + 12))) / tokenPusdPrice;
+        referenceTimestamp = lastTimeStamp;
     }
 
     /**
