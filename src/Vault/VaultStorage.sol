@@ -29,6 +29,8 @@ contract VaultStorage {
     // New event for withdrawal cancellation
     event WithdrawalCancelled(address indexed by, address[] assets, uint256[] amounts);
 
+    event NFTWithdrawn(address to, uint256 tokenId);
+
     /* ========== State Variables ========== */
 
     // Dynamic asset management
