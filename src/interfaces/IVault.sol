@@ -16,9 +16,9 @@ interface IVault {
 
     function isValidAsset(address asset) external view returns (bool);
 
-    function getTokenPUSDValue(address asset, uint256 amount) external view returns (uint256 pusdAmount);
+    function getTokenPUSDValue(address asset, uint256 amount) external view returns (uint256 pusdAmount, uint256 referenceTimestamp);
 
-    function getPUSDAssetValue(address asset, uint256 pusdAmount) external view returns (uint256 amount);
+    function getPUSDAssetValue(address asset, uint256 pusdAmount) external view returns (uint256 amount, uint256 referenceTimestamp);
 
     function pause() external view returns (bool);
 
@@ -27,4 +27,6 @@ interface IVault {
     function unpause() external view returns (bool);
 
     function heartbeat() external;
+
+    function withdrawPUSDTo(address user, uint256 amount) external;
 }

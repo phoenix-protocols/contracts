@@ -11,14 +11,15 @@ import "@openzeppelin/contracts/token/ERC20/IERC20.sol";
 import "@openzeppelin/contracts/token/ERC20/extensions/IERC20Metadata.sol";
 import "../interfaces/IPUSDOracle.sol";
 import "./VaultStorage.sol";
+import "../token/NFTManager/NFTManager.sol";
 
 /**
  * @title VaultUpgradeable
- * @notice Core asset vault contract of Phoenix DeFi system
- * @dev Upgradeable multi-asset vault supporting dynamic addition/removal of stablecoin assets
+ * @notice Core assetToken vault contract of Phoenix DeFi system
+ * @dev Upgradeable multi-assetToken vault supporting dynamic addition/removal of stablecoin assetTokens
  *
  * Main features:
- * - Multi-asset support (USDT, USDC and other stablecoins)
+ * - Multi-assetToken support (USDT, USDC and other stablecoins)
  * - Fund deposit/withdrawal management (only callable by Farm contract)
  * - Fee collection and distribution
  * - 48-hour timelock secure withdrawal mechanism
@@ -27,19 +28,12 @@ import "./VaultStorage.sol";
  * - UUPS upgradeable proxy pattern
  *
  * securityfeatures：
- * - Multiple permissions control (admin, asset admin, pauser)
+ * - Multiple permissions control (admin, assetToken admin, pauser)
  * - Reentrancy attack protection
  * - Timelock large amount withdrawal protection
  * - Oracle offline detection and automatic pause
  */
-contract Vault is
-    Initializable,
-    AccessControlUpgradeable,
-    PausableUpgradeable,
-    ReentrancyGuardUpgradeable,
-    UUPSUpgradeable,
-    VaultStorage
-{
+contract Vault is Initializable, AccessControlUpgradeable, PausableUpgradeable, ReentrancyGuardUpgradeable, UUPSUpgradeable, VaultStorage {
     using SafeERC20 for IERC20;
 
     /* ========== Constructor and Initialization ========== */
@@ -56,7 +50,7 @@ contract Vault is
      * @param admin Admin address, will receive all management permissions
      * @param _pusdToken PUSD token contract address (for protection, prohibited from being added as collateral)
      */
-    function initialize(address admin, address _pusdToken) public initializer {
+    function initialize(address admin, address _pusdToken, address nftManager_) public initializer {
         require(admin != address(0), "Vault: Invalid admin address");
         require(_pusdToken != address(0), "Vault: Invalid PUSD address");
 
@@ -73,11 +67,13 @@ contract Vault is
         // Set PUSD token address (for protection)
         pusdToken = _pusdToken;
 
+        _nftManager = nftManager_;
+
         // Initialize single admin
         singleAdmin = admin;
 
-        // Note: USDT and USDC assets need to be manually added after deployment
-        // Use addAsset() function to add supported assets
+        // Note: USDT and USDC assetTokens need to be manually added after deployment
+        // Use addAsset() function to add supported assetTokens
     }
 
     /* ========== System configuration functions ========== */
@@ -109,58 +105,58 @@ contract Vault is
     /* ========== Asset management functions ========== */
 
     /**
-     * @notice Add supported asset
-     * @dev Asset admin can dynamically add new stablecoin assets
-     * @param asset Asset contract address
+     * @notice Add supported assetToken
+     * @dev Asset admin can dynamically add new stablecoin assetTokens
+     * @param assetToken Asset contract address
      * @param name Asset name (e.g., "Tether USD", "USD Coin")
      */
-    function addAsset(address asset, string memory name) external onlyRole(ASSET_MANAGER_ROLE) {
-        // 🔒 Security check: PUSD cannot be a collateral asset
-        require(asset != pusdToken, "Vault: PUSD cannot be collateral asset");
-        _addAssetInternal(asset, name);
+    function addAsset(address assetToken, string memory name) external onlyRole(ASSET_MANAGER_ROLE) {
+        // 🔒 Security check: PUSD cannot be a collateral assetToken
+        require(assetToken != pusdToken, "Vault: PUSD cannot be collateral assetToken");
+        _addAssetInternal(assetToken, name);
     }
 
     /**
-     * @notice Internal function: Add asset support (no permission check, for initialization use only)
-     * @param asset Asset contract address
+     * @notice Internal function: Add assetToken support (no permission check, for initialization use only)
+     * @param assetToken Asset contract address
      * @param name Asset name
      */
-    function _addAssetInternal(address asset, string memory name) internal {
-        require(asset != address(0), "Vault: Invalid asset address");
-        require(!supportedAssets[asset], "Vault: Asset already supported");
+    function _addAssetInternal(address assetToken, string memory name) internal {
+        require(assetToken != address(0), "Vault: Invalid assetToken address");
+        require(!supportedAssets[assetToken], "Vault: Asset already supported");
         require(bytes(name).length > 0, "Vault: Asset name cannot be empty");
 
-        supportedAssets[asset] = true;
-        assetList.push(asset);
-        assetNames[asset] = name;
+        supportedAssets[assetToken] = true;
+        assetList.push(assetToken);
+        assetNames[assetToken] = name;
 
-        emit AssetAdded(asset, name);
+        emit AssetAdded(assetToken, name);
     }
 
     /**
-     * @notice Remove supported asset
-     * @dev Use with caution! Can only remove when asset balance and fees are both 0
-     * @param asset Asset contract address to remove
+     * @notice Remove supported assetToken
+     * @dev Use with caution! Can only remove when assetToken balance and fees are both 0
+     * @param assetToken Asset contract address to remove
      */
-    function removeAsset(address asset) external onlyRole(DEFAULT_ADMIN_ROLE) {
-        require(supportedAssets[asset], "Vault: Asset not supported");
-        require(IERC20(asset).balanceOf(address(this)) == 0, "Vault: Asset has balance");
-        require(accumulatedFees[asset] == 0, "Vault: Asset has unclaimed fees");
+    function removeAsset(address assetToken) external onlyRole(DEFAULT_ADMIN_ROLE) {
+        require(supportedAssets[assetToken], "Vault: Asset not supported");
+        require(IERC20(assetToken).balanceOf(address(this)) == 0, "Vault: Asset has balance");
+        require(accumulatedFees[assetToken] == 0, "Vault: Asset has unclaimed fees");
 
-        supportedAssets[asset] = false;
-        string memory name = assetNames[asset];
-        delete assetNames[asset];
+        supportedAssets[assetToken] = false;
+        string memory name = assetNames[assetToken];
+        delete assetNames[assetToken];
 
         // Remove from array (using swap-delete method to optimize gas consumption)
         for (uint256 i = 0; i < assetList.length; i++) {
-            if (assetList[i] == asset) {
+            if (assetList[i] == assetToken) {
                 assetList[i] = assetList[assetList.length - 1];
                 assetList.pop();
                 break;
             }
         }
 
-        emit AssetRemoved(asset, name);
+        emit AssetRemoved(assetToken, name);
     }
 
     /* ========== Core fund operation functions ========== */
@@ -169,51 +165,60 @@ contract Vault is
      * @notice User deposit function
      * @dev Only Farm contract can call, includes Oracle health check
      * @param user Depositing user address
-     * @param asset Deposit asset address
+     * @param assetToken Deposit assetToken address
      * @param amount Deposit amount
      */
-    function depositFor(address user, address asset, uint256 amount) external nonReentrant whenNotPaused {
+    function depositFor(address user, address assetToken, uint256 amount) external nonReentrant whenNotPaused {
         require(block.timestamp - lastHealthCheck < HEALTH_CHECK_TIMEOUT, "Vault: Oracle system offline");
         require(msg.sender == farm, "Vault: Caller is not the farm");
-        require(supportedAssets[asset], "Vault: Unsupported asset");
+        require(supportedAssets[assetToken], "Vault: Unsupported assetToken");
 
         // Check allowance amount, provide friendly error message
-        uint256 allowance = IERC20(asset).allowance(user, address(this));
+        uint256 allowance = IERC20(assetToken).allowance(user, address(this));
         require(allowance >= amount, "Vault: Please approve tokens first");
 
-        IERC20(asset).safeTransferFrom(user, address(this), amount);
-        emit Deposited(user, asset, amount);
-        emit TVLChanged(asset, IERC20(asset).balanceOf(address(this)));
+        IERC20(assetToken).safeTransferFrom(user, address(this), amount);
+        emit Deposited(user, assetToken, amount);
+        emit TVLChanged(assetToken, IERC20(assetToken).balanceOf(address(this)));
     }
 
     /**
      * @notice User withdrawal function
      * @dev Only Farm contract can call, includes Oracle health check
      * @param user Withdrawing user address
-     * @param asset Withdrawal asset address
+     * @param assetToken Withdrawal assetToken address
      * @param amount Withdrawal amount
      */
-    function withdrawTo(address user, address asset, uint256 amount) external nonReentrant whenNotPaused {
+    function withdrawTo(address user, address assetToken, uint256 amount) external nonReentrant whenNotPaused {
         require(block.timestamp - lastHealthCheck < HEALTH_CHECK_TIMEOUT, "Vault: Oracle system offline");
         require(msg.sender == farm, "Vault: Caller is not the farm");
-        require(supportedAssets[asset], "Vault: Unsupported asset");
+        require(supportedAssets[assetToken], "Vault: Unsupported assetToken");
 
-        IERC20(asset).safeTransfer(user, amount);
-        emit Withdrawn(user, asset, amount);
-        emit TVLChanged(asset, IERC20(asset).balanceOf(address(this)));
+        IERC20(assetToken).safeTransfer(user, amount);
+        emit Withdrawn(user, assetToken, amount);
+        emit TVLChanged(assetToken, IERC20(assetToken).balanceOf(address(this)));
+    }
+
+    function withdrawPUSDTo(address user, uint256 amount) external nonReentrant whenNotPaused {
+        require(block.timestamp - lastHealthCheck < HEALTH_CHECK_TIMEOUT, "Vault: Oracle system offline");
+        require(msg.sender == farm, "Vault: Caller is not the farm");
+
+        IERC20(pusdToken).safeTransfer(user, amount);
+        emit Withdrawn(user, address(pusdToken), amount);
+        emit TVLChanged(address(pusdToken), IERC20(address(pusdToken)).balanceOf(address(this)));
     }
 
     /**
      * @notice Add fee
      * @dev Called by Farm contract to record transaction fees
-     * @param asset Fee asset address
+     * @param assetToken Fee assetToken address
      * @param amount Fee amount
      */
-    function addFee(address asset, uint256 amount) external {
+    function addFee(address assetToken, uint256 amount) external {
         require(msg.sender == farm, "Vault: Caller is not the farm");
-        require(supportedAssets[asset], "Vault: Unsupported asset");
+        require(supportedAssets[assetToken], "Vault: Unsupported assetToken");
         require(amount > 0, "Vault: Invalid fee amount");
-        accumulatedFees[asset] += amount;
+        accumulatedFees[assetToken] += amount;
     }
 
     /* ========== Admin operation functions ========== */
@@ -221,60 +226,55 @@ contract Vault is
     /**
      * @notice Withdraw fees
      * @dev Admin can withdraw accumulated fees to specified address
-     * @param asset Asset contract address to withdraw fees from
+     * @param assetToken Asset contract address to withdraw fees from
      * @param to Fee recipient address
      */
-    function claimFees(address asset, address to) external onlyRole(DEFAULT_ADMIN_ROLE) nonReentrant {
-        require(supportedAssets[asset], "Vault: Unsupported asset");
-        uint256 feesToClaim = accumulatedFees[asset];
+    function claimFees(address assetToken, address to) external onlyRole(DEFAULT_ADMIN_ROLE) nonReentrant {
+        require(supportedAssets[assetToken], "Vault: Unsupported assetToken");
+        uint256 feesToClaim = accumulatedFees[assetToken];
         require(feesToClaim > 0, "Vault: No fees to claim");
 
-        uint256 balance = IERC20(asset).balanceOf(address(this));
+        uint256 balance = IERC20(assetToken).balanceOf(address(this));
         require(balance >= feesToClaim, "Vault: Insufficient balance for fees");
 
-        accumulatedFees[asset] = 0;
-        IERC20(asset).safeTransfer(to, feesToClaim);
-        emit FeesClaimed(to, asset, feesToClaim);
+        accumulatedFees[assetToken] = 0;
+        IERC20(assetToken).safeTransfer(to, feesToClaim);
+        emit FeesClaimed(to, assetToken, feesToClaim);
     }
 
     /**
      * @notice Propose batch large amount withdrawal
      * @dev Start 48-hour timelock protection mechanism for emergency or large fund allocation
      * @param to Withdrawal target address
-     * @param assets Withdrawal asset addresses
-     * @param amounts Withdrawal amount corresponding to the assets addresses
+     * @param assetTokens Withdrawal assetToken addresses
+     * @param amounts Withdrawal amount corresponding to the assetTokens addresses
      */
-    function proposeWithdrawal(address to, address[] calldata assets, uint256[] calldata amounts) external onlyRole(DEFAULT_ADMIN_ROLE) {
+    function proposeWithdrawal(address to, address[] calldata assetTokens, uint256[] calldata amounts) external onlyRole(DEFAULT_ADMIN_ROLE) {
         require(to != address(0), "Vault: Cannot withdraw to zero address");
-        require(assets.length > 0, "Vault: Empty assets array");
+        require(assetTokens.length > 0, "Vault: Empty assetTokens array");
         require(amounts.length > 0, "Vault: Empty amounts array");
-        require(assets.length == amounts.length, "Vault: Assets and amounts length mismatch");
+        require(assetTokens.length == amounts.length, "Vault: Assets and amounts length mismatch");
         require(pendingWithdrawalRequests.length == 0, "Vault: Pending withdrawal exists");
 
-        for (uint256 i = 0; i < assets.length; i++) {
-            require(supportedAssets[assets[i]], "Vault: Unsupported asset");
+        for (uint256 i = 0; i < assetTokens.length; i++) {
+            require(supportedAssets[assetTokens[i]], "Vault: Unsupported assetToken");
             require(amounts[i] > 0, "Vault: Amount must be greater than 0");
-            require(IERC20(assets[i]).balanceOf(address(this)) >= amounts[i], "Vault: Insufficient funds for proposal");
+            require(IERC20(assetTokens[i]).balanceOf(address(this)) >= amounts[i], "Vault: Insufficient funds for proposal");
 
-            // Check duplicate asset
-            require(!_tempAssetCheck[assets[i]], "Vault: Duplicate asset");
-            _tempAssetCheck[assets[i]] = true;
+            // Check duplicate assetToken
+            require(!_tempAssetCheck[assetTokens[i]], "Vault: Duplicate assetToken");
+            _tempAssetCheck[assetTokens[i]] = true;
         }
-        
+
         pendingWithdrawalTo = to;
         withdrawalUnlockTime = block.timestamp + TIMELOCK_DELAY;
 
         // Push withdrawal requests
-        for (uint256 i = 0; i < assets.length; i++) {
-            pendingWithdrawalRequests.push(
-                WithdrawalRequest({
-                    asset: assets[i],
-                    amount: amounts[i]
-                })
-            );
+        for (uint256 i = 0; i < assetTokens.length; i++) {
+            pendingWithdrawalRequests.push(WithdrawalRequest({assetToken: assetTokens[i], amount: amounts[i]}));
         }
-        
-        emit WithdrawalProposed(to, assets, amounts, withdrawalUnlockTime);
+
+        emit WithdrawalProposed(to, assetTokens, amounts, withdrawalUnlockTime);
     }
 
     /**
@@ -289,27 +289,27 @@ contract Vault is
         address to = pendingWithdrawalTo;
         uint256 requestCount = pendingWithdrawalRequests.length;
 
-        address[] memory assets = new address[](requestCount);
+        address[] memory assetTokens = new address[](requestCount);
         uint256[] memory amounts = new uint256[](requestCount);
 
         // Execute withdrawal
         for (uint256 i = 0; i < requestCount; i++) {
             WithdrawalRequest memory request = pendingWithdrawalRequests[i];
-            
+
             // Check balance
-            uint256 balance = IERC20(request.asset).balanceOf(address(this));
+            uint256 balance = IERC20(request.assetToken).balanceOf(address(this));
             require(balance >= request.amount, "Vault: Insufficient balance at execution");
 
-            assets[i] = request.asset;
+            assetTokens[i] = request.assetToken;
             amounts[i] = request.amount;
-            
-            IERC20(request.asset).safeTransfer(to, request.amount);
-            emit TVLChanged(request.asset, IERC20(request.asset).balanceOf(address(this)));
+
+            IERC20(request.assetToken).safeTransfer(to, request.amount);
+            emit TVLChanged(request.assetToken, IERC20(request.assetToken).balanceOf(address(this)));
         }
 
         // Clear mapping _tempAssetCheck
         for (uint256 i = 0; i < requestCount; i++) {
-            delete _tempAssetCheck[pendingWithdrawalRequests[i].asset];
+            delete _tempAssetCheck[pendingWithdrawalRequests[i].assetToken];
         }
 
         // Clear pending withdrawal state
@@ -317,7 +317,7 @@ contract Vault is
         pendingWithdrawalTo = address(0);
         withdrawalUnlockTime = 0;
 
-        emit WithdrawalExecuted(to, assets, amounts);
+        emit WithdrawalExecuted(to, assetTokens, amounts);
     }
 
     /**
@@ -329,17 +329,17 @@ contract Vault is
 
         uint256 requestCount = pendingWithdrawalRequests.length;
 
-        address[] memory assets = new address[](requestCount);
+        address[] memory assetTokens = new address[](requestCount);
         uint256[] memory amounts = new uint256[](requestCount);
 
         for (uint256 i = 0; i < requestCount; i++) {
-            assets[i] = pendingWithdrawalRequests[i].asset;
+            assetTokens[i] = pendingWithdrawalRequests[i].assetToken;
             amounts[i] = pendingWithdrawalRequests[i].amount;
         }
 
         // Clear mapping _tempAssetCheck
         for (uint256 i = 0; i < requestCount; i++) {
-            delete _tempAssetCheck[pendingWithdrawalRequests[i].asset];
+            delete _tempAssetCheck[pendingWithdrawalRequests[i].assetToken];
         }
 
         // Clear pending withdrawal state
@@ -347,20 +347,16 @@ contract Vault is
         pendingWithdrawalTo = address(0);
         withdrawalUnlockTime = 0;
 
-        emit WithdrawalCancelled(msg.sender, assets, amounts);
+        emit WithdrawalCancelled(msg.sender, assetTokens, amounts);
     }
 
     /**
      * @notice Emergency rescue for non-supported tokens mistakenly sent to the vault
-     * @dev Only for NON-supported assets. Supported assets must use timelock withdrawal.
+     * @dev Only for NON-supported assetTokens. Supported assetTokens must use timelock withdrawal.
      */
-    function emergencySweep(address token, address to, uint256 amount)
-        external
-        onlyRole(DEFAULT_ADMIN_ROLE)
-        nonReentrant
-    {
+    function emergencySweep(address token, address to, uint256 amount) external onlyRole(DEFAULT_ADMIN_ROLE) nonReentrant {
         require(token != address(0) && to != address(0), "Vault: Zero address");
-        require(!supportedAssets[token], "Vault: Use timelock for supported asset");
+        require(!supportedAssets[token], "Vault: Use timelock for supported assetToken");
         require(token != pusdToken, "Vault: Cannot sweep PUSD");
         IERC20(token).safeTransfer(to, amount);
     }
@@ -374,6 +370,35 @@ contract Vault is
     function heartbeat() external {
         require(msg.sender == oracleManager, "Vault: Only Oracle Manager can send heartbeat");
         lastHealthCheck = block.timestamp;
+    }
+
+    function withdrawNFT(uint256 tokenId, address to) external onlyRole(DEFAULT_ADMIN_ROLE) {
+        NFTManager nftManager = NFTManager(_nftManager);
+        require(nftManager.exists(tokenId));
+        require(nftManager.ownerOf(tokenId) == address(this));
+
+        IFarm.StakeRecord memory r = nftManager.getStakeRecord(tokenId);
+        require(r.active, "NFTManager: stake already withdrawn");
+        require(block.timestamp >= r.startTime + r.lockPeriod + MAX_DELAY_PERIOD, "Vault: stake is still locked");
+
+        nftManager.safeTransferFrom(address(this), to, tokenId);
+
+        emit NFTWithdrawn(to, tokenId);
+    }
+
+    function withdrawNFTByFarm(uint256 tokenId, address to) external {
+        require(msg.sender == farm, "Not From Farm");
+        NFTManager nftManager = NFTManager(_nftManager);
+        require(nftManager.exists(tokenId));
+        require(nftManager.ownerOf(tokenId) == address(this));
+
+        IFarm.StakeRecord memory r = nftManager.getStakeRecord(tokenId);
+        require(r.active, "NFTManager: stake already withdrawn");
+        require(block.timestamp >= r.startTime + r.lockPeriod + MAX_DELAY_PERIOD, "Vault: stake is still locked");
+
+        nftManager.safeTransferFrom(address(this), to, tokenId);
+
+        emit NFTWithdrawn(to, tokenId);
     }
 
     /**
@@ -396,9 +421,9 @@ contract Vault is
 
     // 📋 Frontend call format specification:
     //
-    // 🔢 Values that need to be divided by asset decimals (raw token amount):
+    // 🔢 Values that need to be divided by assetToken decimals (raw token amount):
     //   - getTVL(address).tvl          → tvl / (10 ** tokenDecimals)
-    //   - getFormattedTVL().assetAmount → amount / (10 ** assetDecimals)
+    //   - getFormattedTVL().assetTokenAmount → amount / (10 ** assetTokenDecimals)
     //   - getPUSDMarketCap()           → marketCap / (10 ** pusdDecimals) [PUSD decimals]
     //
     // 💰 USD values that need to be divided by 10^18 (standard 18 decimal places):
@@ -408,30 +433,30 @@ contract Vault is
     //   - getFormattedTVL().usdAmount  → value / 1e18
     //
     // ✅ Final values (no processing needed):
-    //   - getFormattedTVL().assetDecimals → use directly
-    //   - getFormattedTVL().assetSymbol   → use directly
+    //   - getFormattedTVL().assetTokenDecimals → use directly
+    //   - getFormattedTVL().assetTokenSymbol   → use directly
     //   - getClaimableFees()             → fees / (10 ** tokenDecimals)
 
     /**
-     * @notice Get vault total value locked (TVL) and market value for specific asset
-     * @param asset Asset contract address
+     * @notice Get vault total value locked (TVL) and market value for specific assetToken
+     * @param assetToken Asset contract address
      * @return tvl Asset balance in vault (raw amount, needs to be divided by tokenDecimals)
-     * @return marketValue Market value of the asset (USD denominated, 18 decimal places, needs to be divided by 1e18)
+     * @return marketValue Market value of the assetToken (USD denominated, 18 decimal places, needs to be divided by 1e18)
      */
-    function getTVL(address asset) external view returns (uint256 tvl, uint256 marketValue) {
-        require(supportedAssets[asset], "Vault: Unsupported asset");
+    function getTVL(address assetToken) external view returns (uint256 tvl, uint256 marketValue) {
+        require(supportedAssets[assetToken], "Vault: Unsupported assetToken");
 
-        // Get asset balance
-        tvl = IERC20(asset).balanceOf(address(this));
+        // Get assetToken balance
+        tvl = IERC20(assetToken).balanceOf(address(this));
 
         // If Oracle is set, calculate real market value
         if (oracleManager != address(0)) {
-            try IPUSDOracle(oracleManager).getTokenUSDPrice(asset) returns (uint256 price, uint256) {
-                // Get asset decimal places
-                uint8 decimals = IERC20Metadata(asset).decimals();
+            try IPUSDOracle(oracleManager).getTokenUSDPrice(assetToken) returns (uint256 price, uint256) {
+                // Get assetToken decimal places
+                uint8 decimals = IERC20Metadata(assetToken).decimals();
 
                 // Calculate market value: tvl * price / (10 ** decimals)
-                // price is already 18 decimal USD price, tvl is raw asset amount
+                // price is already 18 decimal USD price, tvl is raw assetToken amount
                 marketValue = (tvl * price) / (10 ** decimals);
             } catch {
                 // Oracle call failed, use fallback logic
@@ -444,17 +469,17 @@ contract Vault is
     }
 
     /**
-     * @notice Get system total TVL (sum of USD market values of all assets)
+     * @notice Get system total TVL (sum of USD market values of all assetTokens)
      * @return totalTVL System total TVL, USD denominated, 18 decimal places (frontend needs to divide by 1e18)
-     * @dev Iterate through all supported assets and calculate their total USD value
+     * @dev Iterate through all supported assetTokens and calculate their total USD value
      */
     function getTotalTVL() external view returns (uint256 totalTVL) {
         for (uint256 i = 0; i < assetList.length; i++) {
-            address asset = assetList[i];
-            try this.getTVL(asset) returns (uint256, uint256 marketValue) {
+            address assetToken = assetList[i];
+            try this.getTVL(assetToken) returns (uint256, uint256 marketValue) {
                 totalTVL += marketValue;
             } catch {
-                // If price retrieval fails for an asset, skip that asset
+                // If price retrieval fails for an assetToken, skip that assetToken
                 continue;
             }
         }
@@ -485,88 +510,86 @@ contract Vault is
     }
 
     /**
-     * @notice Get PUSD value corresponding to specified asset amount
-     * @param asset Asset contract address
+     * @notice Get PUSD value corresponding to specified assetToken amount
+     * @param assetToken Asset contract address
      * @param amount Asset amount (raw units, including decimal places)
      * @return pusdAmount Corresponding PUSD amount (6 decimal places)
      * @dev Directly obtain Token/PUSD price through Oracle for conversion, transaction fails if price retrieval fails
      */
-    function getTokenPUSDValue(address asset, uint256 amount) external view returns (uint256 pusdAmount) {
-        require(supportedAssets[asset], "Vault: Unsupported asset");
+    function getTokenPUSDValue(address assetToken, uint256 amount) external view returns (uint256 pusdAmount, uint256 referenceTimestamp) {
+        require(supportedAssets[assetToken], "Vault: Unsupported assetToken");
         require(amount > 0, "Vault: Amount must be greater than 0");
         require(oracleManager != address(0), "Vault: Oracle not set");
 
         // Must get price from Oracle, fail if no price
-        (uint256 tokenPusdPrice,) = IPUSDOracle(oracleManager).getTokenPUSDPrice(asset);
+        (uint256 tokenPusdPrice, uint256 lastTimestamp) = IPUSDOracle(oracleManager).getTokenPUSDPrice(assetToken);
         require(tokenPusdPrice > 0, "Vault: Invalid token price");
 
-        // Get asset decimal places
-        uint8 assetDecimals = IERC20Metadata(asset).decimals();
+        // Get assetToken decimal places
+        uint8 assetTokenDecimals = IERC20Metadata(assetToken).decimals();
 
-        // Calculate PUSD amount: amount * tokenPusdPrice / (10 ** assetDecimals)
-        // tokenPusdPrice is 18 decimal places, amount is raw asset amount, result converted to 6 decimal places
-        pusdAmount = (amount * tokenPusdPrice) / (10 ** (assetDecimals + 12));
+        // Calculate PUSD amount: amount * tokenPusdPrice / (10 ** (assetTokenDecimals + 12))
+        // tokenPusdPrice is 18 decimal places, amount is raw assetToken amount, result converted to 6 decimal places
+        pusdAmount = (amount * tokenPusdPrice) / (10 ** (assetTokenDecimals + 12));
+        referenceTimestamp = lastTimestamp;
     }
 
     /**
-     * @notice Convert PUSD amount to corresponding asset amount
-     * @param asset Asset contract address
+     * @notice Convert PUSD amount to corresponding assetToken amount
+     * @param assetToken Asset contract address
      * @param pusdAmount PUSD amount (6 decimal places)
-     * @return amount Corresponding asset amount
+     * @return amount Corresponding assetToken amount
      */
-    function getPUSDAssetValue(address asset, uint256 pusdAmount) external view returns (uint256 amount) {
-        require(supportedAssets[asset], "Vault: Unsupported asset");
+    function getPUSDAssetValue(address assetToken, uint256 pusdAmount) external view returns (uint256 amount, uint256 referenceTimestamp) {
+        require(supportedAssets[assetToken], "Vault: Unsupported assetToken");
         require(pusdAmount >= 0, "Vault: Amount must be greater than 0");
         require(oracleManager != address(0), "Vault: Oracle not set");
 
         // Must get price from Oracle, fail if no price
-        (uint256 tokenPusdPrice,) = IPUSDOracle(oracleManager).getTokenPUSDPrice(asset);
+        (uint256 tokenPusdPrice, uint256 lastTimeStamp) = IPUSDOracle(oracleManager).getTokenPUSDPrice(assetToken);
         require(tokenPusdPrice > 0, "Vault: Invalid token price");
 
-        // Get asset decimal places
-        uint8 assetDecimals = IERC20Metadata(asset).decimals();
+        // Get assetToken decimal places
+        uint8 assetTokenDecimals = IERC20Metadata(assetToken).decimals();
 
-        // Calculate asset amount: pusdAmount * (10 ** (assetDecimals + 12)) / tokenPusdPrice
+        // Calculate assetToken amount: pusdAmount * (10 ** (assetTokenDecimals + 12)) / tokenPusdPrice
         // This is the reverse calculation of getTokenPUSDValue
-        amount = (pusdAmount * (10 ** (assetDecimals + 12))) / tokenPusdPrice;
+        amount = (pusdAmount * (10 ** (assetTokenDecimals + 12))) / tokenPusdPrice;
+        referenceTimestamp = lastTimeStamp;
     }
 
     /**
      * @notice Get simplified formatted TVL information (convenient for frontend display)
-     * @param asset Asset contract address
-     * @return assetAmount Asset amount (without decimal places, e.g.: 1000500 represents 1000.5)
+     * @param assetToken Asset contract address
+     * @return assetTokenAmount Asset amount (without decimal places, e.g.: 1000500 represents 1000.5)
      * @return usdAmount USD value (without decimal places, e.g.: 1000500 represents $1000.5)
-     * @return assetDecimals Asset decimal places (for frontend formatting display)
-     * @return assetSymbol Asset symbol
-     * @dev Frontend usage: assetAmount / (10 ** assetDecimals) to get real amount
+     * @return assetTokenDecimals Asset decimal places (for frontend formatting display)
+     * @return assetTokenSymbol Asset symbol
+     * @dev Frontend usage: assetTokenAmount / (10 ** assetTokenDecimals) to get real amount
      *      Frontend usage: usdAmount / 1e18 to get real USD value
      */
-    function getFormattedTVL(address asset)
-        external
-        view
-        returns (uint256 assetAmount, uint256 usdAmount, uint8 assetDecimals, string memory assetSymbol)
-    {
-        require(supportedAssets[asset], "Vault: Unsupported asset");
+    function getFormattedTVL(address assetToken) external view returns (uint256 assetTokenAmount, uint256 usdAmount, uint8 assetTokenDecimals, string memory assetTokenSymbol) {
+        require(supportedAssets[assetToken], "Vault: Unsupported assetToken");
 
-        (uint256 tvl, uint256 marketValue) = this.getTVL(asset);
+        (uint256 tvl, uint256 marketValue) = this.getTVL(assetToken);
 
-        // Get asset information
-        assetDecimals = IERC20Metadata(asset).decimals();
-        assetSymbol = IERC20Metadata(asset).symbol();
+        // Get assetToken information
+        assetTokenDecimals = IERC20Metadata(assetToken).decimals();
+        assetTokenSymbol = IERC20Metadata(assetToken).symbol();
 
         // Return raw data, let frontend format it
-        assetAmount = tvl; // Keep asset raw decimal format
+        assetTokenAmount = tvl; // Keep assetToken raw decimal format
         usdAmount = marketValue; // 18 decimal USD value
     }
 
     /**
-     * @notice Get claimable fees for specific asset
-     * @param asset Asset contract address
-     * @return Accumulated fee amount for that asset
+     * @notice Get claimable fees for specific assetToken
+     * @param assetToken Asset contract address
+     * @return Accumulated fee amount for that assetToken
      */
-    function getClaimableFees(address asset) external view returns (uint256) {
-        require(supportedAssets[asset], "Vault: Unsupported asset");
-        return accumulatedFees[asset];
+    function getClaimableFees(address assetToken) external view returns (uint256) {
+        require(supportedAssets[assetToken], "Vault: Unsupported assetToken");
+        return accumulatedFees[assetToken];
     }
 
     /**
@@ -578,52 +601,52 @@ contract Vault is
     }
 
     /**
-     * @notice Check if it's a supported asset
-     * @param asset Asset contract address
-     * @return true if the asset is supported by the vault
+     * @notice Check if it's a supported assetToken
+     * @param assetToken Asset contract address
+     * @return true if the assetToken is supported by the vault
      */
-    function isValidAsset(address asset) external view returns (bool) {
-        return supportedAssets[asset];
+    function isValidAsset(address assetToken) external view returns (bool) {
+        return supportedAssets[assetToken];
     }
 
     /**
-     * @notice Get list of all supported assets
-     * @return Array of supported asset addresses
+     * @notice Get list of all supported assetTokens
+     * @return Array of supported assetToken addresses
      */
     function getSupportedAssets() external view returns (address[] memory) {
         return assetList;
     }
 
     /**
-     * @notice Get asset name
-     * @param asset Asset contract address
-     * @return Readable name of the asset
+     * @notice Get assetToken name
+     * @param assetToken Asset contract address
+     * @return Readable name of the assetToken
      */
-    function getAssetName(address asset) external view returns (string memory) {
-        require(supportedAssets[asset], "Vault: Unsupported asset");
-        return assetNames[asset];
+    function getAssetName(address assetToken) external view returns (string memory) {
+        require(supportedAssets[assetToken], "Vault: Unsupported assetToken");
+        return assetNames[assetToken];
     }
 
     /**
-     * @notice Get asset symbol (abbreviation)
+     * @notice Get assetToken symbol (abbreviation)
      * @dev Read symbol directly from ERC20 contract
-     * @param asset Asset contract address
+     * @param assetToken Asset contract address
      * @return Asset symbol (e.g., USDT, USDC)
      */
-    function getAssetSymbol(address asset) external view returns (string memory) {
-        require(supportedAssets[asset], "Vault: Unsupported asset");
-        return IERC20Metadata(asset).symbol();
+    function getAssetSymbol(address assetToken) external view returns (string memory) {
+        require(supportedAssets[assetToken], "Vault: Unsupported assetToken");
+        return IERC20Metadata(assetToken).symbol();
     }
 
     /**
-     * @notice Get asset decimal places
+     * @notice Get assetToken decimal places
      * @dev Read decimals directly from ERC20 contract
-     * @param asset Asset contract address
+     * @param assetToken Asset contract address
      * @return Asset decimal places (e.g., 6 for USDT/USDC, 18 for most ERC20)
      */
-    function getTokenDecimals(address asset) external view returns (uint8) {
-        require(supportedAssets[asset], "Vault: Unsupported asset");
-        return IERC20Metadata(asset).decimals();
+    function getTokenDecimals(address assetToken) external view returns (uint8) {
+        require(supportedAssets[assetToken], "Vault: Unsupported assetToken");
+        return IERC20Metadata(assetToken).decimals();
     }
 
     /**
@@ -647,53 +670,33 @@ contract Vault is
      * @notice Get pending withdrawal status details
      * @dev Return complete information about current pending withdrawal
      * @return to Withdrawal target address
-     * @return assets Withdrawal asset addresses
-     * @return assetNames Withdrawal asset names
+     * @return assetTokens Withdrawal assetToken addresses
+     * @return assetTokenNames Withdrawal assetToken names
      * @return amounts Withdrawal amounts
      * @return unlockTime Unlock timestamp
      * @return remainingTime Remaining time (seconds)
      * @return canExecute Whether it can be executed
      */
-    function getPendingWithdrawalInfo()
-        external
-        view
-        returns (
-            address to,
-            address[] memory assets,
-            string[] memory assetNames,
-            uint256[] memory amounts,
-            uint256 unlockTime,
-            uint256 remainingTime,
-            bool canExecute
-        )
-    {
+    function getPendingWithdrawalInfo() external view returns (address to, address[] memory assetTokens, string[] memory assetTokenNames, uint256[] memory amounts, uint256 unlockTime, uint256 remainingTime, bool canExecute) {
         uint256 requestCount = pendingWithdrawalRequests.length;
 
         if (requestCount == 0 || withdrawalUnlockTime == 0) {
-            return (
-                address(0), 
-                new address[](0), 
-                new string[](0), 
-                new uint256[](0), 
-                0, 
-                0, 
-                false
-            );
+            return (address(0), new address[](0), new string[](0), new uint256[](0), 0, 0, false);
         }
 
         to = pendingWithdrawalTo;
         unlockTime = withdrawalUnlockTime;
-        
-        assets = new address[](requestCount);
-        assetNames = new string[](requestCount);
+
+        assetTokens = new address[](requestCount);
+        assetTokenNames = new string[](requestCount);
         amounts = new uint256[](requestCount);
-        
+
         for (uint256 i = 0; i < requestCount; i++) {
-            assets[i] = pendingWithdrawalRequests[i].asset;
+            assetTokens[i] = pendingWithdrawalRequests[i].assetToken;
             amounts[i] = pendingWithdrawalRequests[i].amount;
-            assetNames[i] = this.assetNames(assets[i]);
+            assetTokenNames[i] = this.assetNames(assetTokens[i]);
         }
-        
+
         if (block.timestamp >= unlockTime) {
             remainingTime = 0;
             canExecute = true;
