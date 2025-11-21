@@ -4,6 +4,7 @@ pragma solidity ^0.8.20;
 import "../interfaces/IUniswapPair.sol";
 import "../libraries/UQ112x112.sol";
 import "./UniswapOracleStorage.sol";
+import "../interfaces/IUniswapOracle.sol";
 
 /// @title UniswapOracle
 /// @notice A TWAP oracle based on Uniswap Pair (time-weighted average price)
@@ -103,5 +104,9 @@ contract UniswapOracle is UniswapOracleStorage {
         uint224 p = (token == token0 ? price0Average : price1Average);
         price = (uint256(p) * 1e18) >> 112;
         timestamp = blockTimestampLast;
+    }
+
+    function getMinTWAPPeriod() external view returns (uint256) {
+        return MIN_TWAP_PERIOD;
     }
 }

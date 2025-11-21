@@ -23,7 +23,7 @@ interface IUniswapOracle {
     /// @param token Address of token0 or token1
     /// @return price TWAP price (already decoded into uint256)
     /// @return timestamp Timestamp of the last TWAP update
-    function twapPrice(address token) external view returns (uint256 price, uint256 timestamp);
+    function twapPrice1e18(address token) external view returns (uint256 price, uint256 timestamp);
 
     /// @notice Returns the instantaneous cumulative price values (not stored TWAP),
     ///         simulating UniswapV2Pair's internal cumulative logic.
@@ -35,7 +35,7 @@ interface IUniswapOracle {
     function pair() external view returns (address);
 
     /// @notice TWAP minimum period
-    function MIN_TWAP_PERIOD() external view returns (uint256);
+    function getMinTWAPPeriod() external view returns (uint256);
 
     /// @notice token0 of the pair
     function token0() external view returns (address);

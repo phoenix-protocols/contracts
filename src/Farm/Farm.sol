@@ -244,9 +244,9 @@ contract FarmUpgradeable is Initializable, AccessControlUpgradeable, ReentrancyG
      * @dev Each stake recorded independently; rewards accrue ONLY during the lock period (no post-expiry yield)
      * @param amount Amount of PUSD to stake
      * @param lockPeriod Lock period (5-180 days)
-     * @return stakeId Record ID for this stake
+     * @return tokenId Record ID for this stake
      */
-    function stakePUSD(uint256 amount, uint256 lockPeriod) external nonReentrant whenNotPaused returns (uint256 stakeId) {
+    function stakePUSD(uint256 amount, uint256 lockPeriod) external nonReentrant whenNotPaused returns (uint256 tokenId) {
         require(amount >= minLockAmount * (10 ** pusdToken.decimals()), "Stake amount too small");
 
         // Verify if lock period is supported
@@ -266,7 +266,7 @@ contract FarmUpgradeable is Initializable, AccessControlUpgradeable, ReentrancyG
 
         // Record stake in NFT Manager contract
         NFTManager nftManager = NFTManager(_nftManager);
-        uint256 tokenId = nftManager.mintStakeNFT(msg.sender, amount, uint64(lockPeriod), multiplier, 0);
+        tokenId = nftManager.mintStakeNFT(msg.sender, amount, uint64(lockPeriod), multiplier, 0);
 
         // Update total staked amount
         totalStaked += amount;
@@ -894,6 +894,8 @@ contract FarmUpgradeable is Initializable, AccessControlUpgradeable, ReentrancyG
         delete lockPeriodMultipliers[lockPeriod];
         emit LockPeriodRemoved(lockPeriod);
     }
+
+    /* ========== PUSD Bridge Functions ========== */
 
     /* ========== System Configuration Management ========== */
 

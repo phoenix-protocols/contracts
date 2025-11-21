@@ -9,6 +9,7 @@ import "@openzeppelin/contracts-upgradeable/proxy/utils/Initializable.sol";
 import "@openzeppelin/contracts-upgradeable/proxy/utils/UUPSUpgradeable.sol";
 import "@openzeppelin/contracts/token/ERC20/IERC20.sol";
 import "@openzeppelin/contracts/token/ERC20/extensions/IERC20Metadata.sol";
+import "@openzeppelin/contracts/token/ERC721/IERC721Receiver.sol";
 import "../interfaces/IPUSDOracle.sol";
 import "./VaultStorage.sol";
 import "../token/NFTManager/NFTManager.sol";
@@ -88,6 +89,18 @@ contract Vault is Initializable, AccessControlUpgradeable, PausableUpgradeable, 
         require(_farm != address(0), "Vault: Invalid farm address");
         farm = _farm;
         emit FarmAddressSet(_farm);
+    }
+
+    /**
+     * @notice Set FarmLend contract address
+     * @dev Can only be set once to ensure system security
+     * @param _farmLend FarmLend contract address
+     */
+    function setFarmLendAddress(address _farmLend) external onlyRole(DEFAULT_ADMIN_ROLE) {
+        require(farmLend == address(0), "Vault: FarmLend address already set");
+        require(_farmLend != address(0), "Vault: Invalid FarmLend address");
+        farmLend = _farmLend;
+        emit FarmLendAddressSet(_farmLend);
     }
 
     /**
@@ -191,7 +204,7 @@ contract Vault is Initializable, AccessControlUpgradeable, PausableUpgradeable, 
      */
     function withdrawTo(address user, address assetToken, uint256 amount) external nonReentrant whenNotPaused {
         require(block.timestamp - lastHealthCheck < HEALTH_CHECK_TIMEOUT, "Vault: Oracle system offline");
-        require(msg.sender == farm, "Vault: Caller is not the farm");
+        require(msg.sender == farm || msg.sender == farmLend, "Vault: Caller is not the farm or farmLend");
         require(supportedAssets[assetToken], "Vault: Unsupported assetToken");
 
         IERC20(assetToken).safeTransfer(user, amount);
@@ -766,5 +779,17 @@ contract Vault is Initializable, AccessControlUpgradeable, PausableUpgradeable, 
      */
     function getCurrentAdmin() external view returns (address) {
         return singleAdmin;
+    }
+
+    // ---------- ERC721 Receiver implementation ----------
+
+    /// @notice Mark this vault as able to receive ERC721 tokens
+    function onERC721Received(address operator, address from, uint256 tokenId, bytes calldata data) external pure returns (bytes4) {
+        // Simply accept all incoming NFTs
+        operator;
+        from;
+        tokenId;
+        data;
+        return IERC721Receiver.onERC721Received.selector;
     }
 }

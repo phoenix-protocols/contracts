@@ -29,6 +29,9 @@ contract VaultStorage {
     // New event for withdrawal cancellation
     event WithdrawalCancelled(address indexed by, address[] assets, uint256[] amounts);
 
+    event NFTWithdrawn(address to, uint256 tokenId);
+    event FarmLendAddressSet(address indexed farmLend);
+
     /* ========== State Variables ========== */
 
     // Dynamic asset management
@@ -38,6 +41,7 @@ contract VaultStorage {
 
     // System contract addresses
     address public farm; // Farm contract address, the only contract that can call deposit/withdrawal functions
+    address public farmLend; // FarmLend contract address, also allowed to call deposit/withdrawal functions
     address public oracleManager; // Oracle management contract address, responsible for price feeds and health checks
     address public pusdToken; // PUSD token contract address, prohibited from being added as collateral
 
