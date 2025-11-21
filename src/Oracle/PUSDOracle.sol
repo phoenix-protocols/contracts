@@ -76,7 +76,7 @@ contract PUSDOracleUpgradeable is Initializable, AccessControlUpgradeable, Pausa
         (, int256 price, , uint256 updatedAt, ) = feed.latestRoundData();
 
         IUniswapOracle pusdPairOracle = IUniswapOracle(pusdOracle);
-        (uint256 pusdPrice, uint256 timestamp) = pusdPairOracle.twapPrice(token);
+        (uint256 pusdPrice, uint256 timestamp) = pusdPairOracle.twapPrice1e18(token);
         require(pusdPrice > 0, "Invalid PUSD oracle");
 
         // Emit debug event to record all key values
@@ -116,7 +116,7 @@ contract PUSDOracleUpgradeable is Initializable, AccessControlUpgradeable, Pausa
         TokenConfig storage config = tokens[token];
         require(config.usdFeed != address(0), "Token not supported");
         IUniswapOracle pusdPairOracle = IUniswapOracle(config.pusdOracle);
-        (uint256 tokenPusdPrice, uint256 timestamp) = pusdPairOracle.twapPrice(token);
+        (uint256 tokenPusdPrice, uint256 timestamp) = pusdPairOracle.twapPrice1e18(token);
         require(tokenPusdPrice > 0, "Invalid price");
         require(block.timestamp >= timestamp, "Price timestamp in future");
         require(block.timestamp - timestamp <= maxPriceAge, "PUSD price too old");
@@ -148,7 +148,7 @@ contract PUSDOracleUpgradeable is Initializable, AccessControlUpgradeable, Pausa
             TokenConfig storage config = tokens[tokenList[i]];
             if (config.usdFeed != address(0)) {
                 IUniswapOracle pusdPairOracle = IUniswapOracle(config.pusdOracle);
-                (uint256 tokenPusdPrice, uint256 timestamp) = pusdPairOracle.twapPrice(tokenList[i]);
+                (uint256 tokenPusdPrice, uint256 timestamp) = pusdPairOracle.twapPrice1e18(tokenList[i]);
                 require(tokenPusdPrice > 0, "Invalid price");
                 require(block.timestamp >= timestamp, "Price timestamp in future");
                 require(block.timestamp - timestamp <= maxPriceAge, "PUSD price too old");
