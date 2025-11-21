@@ -52,7 +52,7 @@ interface IFarm {
     event TokenExchangeYPUSDToPUSD(address indexed user, uint256 fromAmount, uint256 toAmount, bool isPUSDToYPUSD);
 
     // Fee rate update events
-    event FeeRatesUpdated(uint256 depositFee, uint256 withdrawFee);
+    event FeeRatesUpdated(uint256 depositFee, uint256 withdrawFee, uint256 _bridgeFeeRate);
     // Staking operation events (stake/unstake)
     // true=stake, false=unstake
     event StakeOperation(address indexed user, uint256 tokenId, uint256 amount, uint256 lockPeriod, bool isStake);
@@ -72,6 +72,11 @@ interface IFarm {
     event LockPeriodAdded(uint256 indexed lockPeriod, uint16 multiplier);
     event LockPeriodRemoved(uint256 indexed lockPeriod);
     event NFTManagerUpdated(address indexed nftManager);
+
+    // Bridge events
+    event BridgePUSDInitiated(uint256 indexed sourceChainId, uint256 indexed destChainId, address indexed from, address to, uint256 totalAmount, uint256 netAmount, uint256 fee);
+    event BridgePUSDFinalized(uint256 indexed sourceChainId, uint256 indexed destChainId, address indexed from, address to, uint256 amount, uint256 fee, uint256 nonce);
+    event BridgeMessengerUpdated(address indexed oldMessenger, address indexed newMessenger);
 
     /* ========== Core External Functions ========== */
 
@@ -113,7 +118,7 @@ interface IFarm {
 
     function updateSystemConfig(uint256 configType, uint256 newValue) external;
 
-    function setFeeRates(uint256 _depositFeeRate, uint256 _withdrawFeeRate) external;
+    function setFeeRates(uint256 _depositFeeRate, uint256 _withdrawFeeRate, uint256 _bridgeFeeRate) external;
 
     function pause() external;
 

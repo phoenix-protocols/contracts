@@ -28,6 +28,7 @@ abstract contract FarmStorage is IFarm {
 
     uint16 public depositFeeRate = 0; // Deposit fee rate (basis points, 0 = 0%, max 65535)
     uint16 public withdrawFeeRate = 50; // Withdrawal fee rate (basis points, 50 = 0.5%, max 65535)
+    uint16 public bridgeFeeRate = 0; // Bridge fee rate (basis points, 50 = 0.5%, max 65535)
 
     uint256 public minDepositAmount = 10 * 10 ** 6; // Minimum deposit amount (USD, configurable)
 
@@ -63,6 +64,11 @@ abstract contract FarmStorage is IFarm {
 
     /* ========== Pool TVL Tracking ========== */
     mapping(uint256 => uint256) public poolTVL; // Total locked value per lock period
+
+    /* ========== Bridge related ========== */ 
+    address public bridgeMessenger; // L1StandardBridge or L2StandardBridge address
+    mapping(bytes32 => bool) public processedBridgeMessages; // Prevent replay attacks
+
 
     // PlaceHolder
     uint256[50] private __gap;
