@@ -14,8 +14,10 @@ contract FarmLendStorage {
         uint256 borrowedAmount; // Principal amount
         uint256 startTime; // Loan start timestamp
         uint256 endTime; // Loan due date
-        uint256 interestSettled; // settled interest
-        uint256 penaltySettled; // settled penalty
+        uint256 lastInterestAccrualTime; // timestamp of last interest accrual
+        uint256 accruedInterest;         // interest accrued but not yet settled
+        uint256 lastPenaltyAccrualTime;  // timestamp of last penalty accrual
+        uint256 accruedPenalty;          // penalty accrued but not yet settled
     }
 
     /// @notice NFT Manager contract which holds stake records
