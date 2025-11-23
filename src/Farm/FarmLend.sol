@@ -153,6 +153,26 @@ contract FarmLend is Initializable, AccessControlUpgradeable, ReentrancyGuardUpg
         total = principal + interest + penalty;
     }
 
+    function getHealthFactor(uint256 tokenId) external view returns (uint256 healthFactor18) {
+        Loan storage loan = loans[tokenId];
+        if (!loan.active) return type(uint256).max;
+
+        // 1. Fetch oracle price
+        //    tokenPrice = PUSD per 1 token (1e18 precision)
+        (uint256 tokenPrice, uint256 lastTs) = pusdOracle.getTokenPUSDPrice(loan.debtToken);
+        require(tokenPrice > 0 && lastTs != 0, "FarmLend: invalid debt token price");
+        require(block.timestamp - lastTs <= MAX_PRICE_AGE, "FarmLend: stale debt token price");
+
+        // 2. Compute collateral in debt token units (1e18)
+        uint256 collateralPUSD_18 = loan.remainingCollateralAmount * 1e12;
+        uint256 collateralTokens_18 = (collateralPUSD_18 * 1e18) / tokenPrice;
+        uint256 decimal = IERC20Metadata(loan.debtToken).decimals();
+        uint256 borrowedAmount_e18 = loan.borrowedAmount * (10 ** (18 - decimal));
+
+        // 3. healthFactor18 = collateralTokens_18 * liquidationRatio / (totalDebt * 10000)
+        healthFactor18 = (collateralTokens_18 * 10000 * 1e18) / (borrowedAmount_e18 * liquidationRatio);
+    }
+
     /// @notice View current accrued interest (including from lastAccrual to now)
     function _currentInterestView(Loan storage loan) internal view returns (uint256) {
         if (!loan.active) return 0;
@@ -505,6 +525,8 @@ contract FarmLend is Initializable, AccessControlUpgradeable, ReentrancyGuardUpg
         require(rewardPUSD <= C, "FarmLend: reward exceeds collateral");
 
         // 10. Update loan collateral & debt
+        _accrueInterest(loan);
+        _accruePenalty(loan);
         loan.borrowedAmount = B - x;
         loan.remainingCollateralAmount = C - rewardPUSD;
 
