@@ -75,7 +75,7 @@ contract FarmLend is Initializable, AccessControlUpgradeable, ReentrancyGuardUpg
         require(newLiquidationRatio >= 10000, "FarmLend: liquidationRatio < 100%");
         require(newTargetRatio >= 10000, "FarmLend: targetRatio < 100%");
         require(newLiquidationRatio < newTargetRatio, "FarmLend: liquidation < target");
-
+        
         uint16 oldLiq = liquidationRatio;
         uint16 oldTar = targetRatio;
 
@@ -84,6 +84,26 @@ contract FarmLend is Initializable, AccessControlUpgradeable, ReentrancyGuardUpg
 
         emit LiquidationRatioUpdated(oldLiq, newLiquidationRatio);
         emit TargetRatioUpdated(oldTar, newTargetRatio);
+    }
+
+    /// @notice Update interest ratio in basis points (e.g. 100 = 1%)
+    function setInterestRatio(uint256 _interestRatio) external onlyRole(DEFAULT_ADMIN_ROLE) {
+        interestRatio = _interestRatio;
+    }
+
+    /// @notice Update penalty ratio in basis points (e.g. 100 = 1%)
+    function setPenaltyRatio(uint256 _penaltyRatio) external onlyRole(DEFAULT_ADMIN_ROLE) {
+        penaltyRatio = _penaltyRatio;
+    }
+
+    /// @notice Update loan duration in seconds
+    function setLoanDuration(uint256 _loanDuration) external onlyRole(DEFAULT_ADMIN_ROLE) {
+        loanDuration = _loanDuration;
+    }
+
+    /// @notice Update loan grace period in seconds
+    function setLoanGracePeriod(uint256 _loanGracePeriod) external onlyRole(DEFAULT_ADMIN_ROLE) {
+        loanGracePeriod = _loanGracePeriod;
     }
 
     // ---------- View helpers ----------
@@ -125,6 +145,71 @@ contract FarmLend is Initializable, AccessControlUpgradeable, ReentrancyGuardUpg
         return loans[tokenId].active;
     }
 
+    /// @notice Get current total debt (principal + interest + penalty) for a given NFT
+    function getLoanDebt(uint256 tokenId) public view returns (uint256 principal, uint256 interest, uint256 penalty, uint256 total) {
+        Loan storage loan = loans[tokenId];
+        if (!loan.active) return (0, 0, 0, 0);
+
+        principal = loan.borrowedAmount;
+
+        interest = _currentInterestView(loan);
+        penalty = _currentPenaltyView(loan);
+
+        total = principal + interest + penalty;
+    }
+
+    /// @notice View current accrued interest (including from lastAccrual to now)
+    function _currentInterestView(Loan storage loan) internal view returns (uint256){
+        if (!loan.active) return 0;
+
+        uint256 interest = loan.accruedInterest;
+
+        uint256 from = loan.lastInterestAccrualTime;
+        if (from == 0) {
+            from = loan.startTime;
+        }
+        if (block.timestamp <= from) {
+            return interest;
+        }
+
+        uint256 timeElapsed = block.timestamp - from;
+        uint256 interestDelta = (loan.borrowedAmount * interestRatio * timeElapsed) / 1e18;
+
+        return interest + interestDelta;
+    }
+
+    /// @notice View current accrued penalty (including from lastPenaltyAccrual to now)
+    function _currentPenaltyView(Loan storage loan) internal view returns (uint256) {
+        if (!loan.active) return 0;
+
+        uint256 penalty = loan.accruedPenalty;
+
+        if (block.timestamp <= loan.endTime + 3 days) {
+            return penalty;
+        }
+
+        uint256 penaltyStart = loan.endTime;
+        uint256 from = loan.lastPenaltyAccrualTime;
+
+        if (from == 0 || from < penaltyStart) {
+            from = penaltyStart;
+        }
+        if (block.timestamp <= from) {
+            return penalty;
+        }
+
+        uint256 overdueSeconds = block.timestamp - from;
+        uint256 overdueDays = (overdueSeconds + 1 days - 1) / 1 days;
+
+        uint256 base = loan.borrowedAmount;
+
+        uint256 delta =
+            (base * penaltyRatio * overdueDays) / 10000;
+
+        return penalty + delta;
+    }
+
+
     // ---------- Core: borrow using NFT stake as collateral ----------
 
     /// @notice Borrow USDT/USDC based on staked PUSD amount represented by NFT
@@ -152,46 +237,177 @@ contract FarmLend is Initializable, AccessControlUpgradeable, ReentrancyGuardUpg
         require(amount <= maxAmount, "FarmLend: amount exceeds max borrowable");
 
         // 5. Transfer lending asset from vault to borrower
-        vault.withdrawTo(debtToken, msg.sender, amount);
+        vault.withdrawTo(msg.sender, debtToken, amount);
 
         // 6. Move NFT to the vault as collateral
         //    User must approve the contract to transfer this NFT
         nftManager.safeTransferFrom(msg.sender, address(vault), tokenId);
 
         // 7. Record loan information
+        loan.active = true;
         loan.borrower = msg.sender;
         loan.remainingCollateralAmount = record.amount;
         loan.debtToken = debtToken;
         loan.borrowedAmount = amount;
-        loan.active = true;
+        loan.startTime = block.timestamp;
+        loan.endTime = block.timestamp + loanDuration;
+        loan.lastInterestAccrualTime = block.timestamp;
+        loan.accruedInterest = 0;
+        loan.lastPenaltyAccrualTime = 0; // No penalty yet
+        loan.accruedPenalty = 0;
+
 
         emit Borrow(msg.sender, tokenId, debtToken, amount);
     }
 
-    // ---------- Repayment flow (simple version) ----------
+    // ---------- Repayment flow ----------
 
-    /// @notice Repay full loan and get NFT back
-    /// @dev Simple "all or nothing" repayment flow
-    function repay(uint256 tokenId) external nonReentrant {
+    /// @notice Repay loan (full or partial)
+    /// @param tokenId NFT token ID
+    /// @param amount Amount to repay
+    function repay(uint256 tokenId, uint256 amount) external nonReentrant {
         Loan storage loan = loans[tokenId];
         require(loan.active, "FarmLend: no active loan");
-        require(loan.borrower == msg.sender, "FarmLend: not borrower");
+        require(amount > 0, "FarmLend: zero amount");
 
-        uint256 debt = loan.borrowedAmount;
+        // Accrue interest and penalty up to now at first
+        _accrueInterest(loan);
+        _accruePenalty(loan);
+        // Overdue check: if current time exceeds loanGracePeriod, user cannot operate
+        if (block.timestamp > loan.endTime + loanGracePeriod) {
+            require(hasRole(DEFAULT_ADMIN_ROLE, msg.sender), "FarmLend: Loan Grace Period exceeded, admin only");
+        } else {
+            require(loan.borrower == msg.sender, "FarmLend: not borrower");
+        }
+
+        // Calculate total debt
+        uint256 principal = loan.borrowedAmount;
+        uint256 interest  = loan.accruedInterest;
+        uint256 penalty   = loan.accruedPenalty;
+        uint256 totalDebt = principal + interest + penalty;
+
+        if (amount > totalDebt) {
+            amount = totalDebt;
+        }
+
         address debtToken = loan.debtToken;
+        require(IERC20(debtToken).balanceOf(msg.sender) >= amount, "FarmLend: insufficient balance");
+        
+        // Transfer tokens
+        IERC20(debtToken).transferFrom(msg.sender, address(vault), amount);
 
-        // 1. Transfer debt token from borrower to vault
-        require(IERC20(debtToken).balanceOf(msg.sender) >= debt, "FarmLend: insufficient balance to repay");
-        IERC20(debtToken).transferFrom(msg.sender, address(vault), debt);
+        // Repay prior: Penalty -> Interest -> Principal
+        uint256 remaining = amount;
 
-        // 2. Release NFT back to the borrower
-        vault.releaseNFT(tokenId, msg.sender);
+        // 1. Repay Penalty
+        if (penalty > 0) {
+            if(remaining <= penalty){
+                // repay partial penalty
+                loan.accruedPenalty -= remaining;
+                emit Repay(msg.sender, tokenId, debtToken, 0, 0, remaining, block.timestamp);
+                return;
+            } else {
+                // repay full penalty
+                remaining -= penalty;
+                loan.accruedPenalty = 0;
+            }
+        }
 
-        // 3. Clear loan state
+        // 2. Repay Interest
+        if (interest > 0) {
+            if (remaining <= interest) {
+                // repay partial interest
+                loan.accruedInterest -= remaining;
+                emit Repay(msg.sender, tokenId, debtToken, 0, remaining, penalty, block.timestamp);
+                return;
+            } else {
+                // repay full interest
+                remaining -= interest;
+                loan.accruedInterest = 0;
+            }
+        }
+
+        // 3. Repay Principal
+        if (remaining < principal) {
+            loan.borrowedAmount -= remaining;
+            emit Repay(msg.sender, tokenId, debtToken, remaining, interest, penalty, block.timestamp);
+            return;
+        }
+
+        // Full repayment and release NFT to borrower
         loan.borrowedAmount = 0;
         loan.active = false;
+        vault.releaseNFT(tokenId, loan.borrower);
+        emit FullyRepaid(msg.sender, tokenId, debtToken, amount, block.timestamp);
+    }
 
-        emit Repay(msg.sender, tokenId, debtToken, debt);
+    /// @notice Repay full loan
+    function repay(uint256 tokenId) external {
+        (,,, uint256 totalDebt) = getLoanDebt(tokenId);
+        this.repay(tokenId, totalDebt);
+    }
+
+    /// @notice Accrue interest for a loan (internal use)
+    function _accrueInterest(Loan storage loan) internal {
+        if (!loan.active) return;
+
+        // Calculate interest since last accrual
+        uint256 from = loan.lastInterestAccrualTime;
+        if (from == 0) {
+            from = loan.startTime;
+        }
+
+        if (block.timestamp <= from) return;
+
+        uint256 timeElapsed = block.timestamp - from;
+
+        uint256 interestAccrued = (loan.borrowedAmount * interestRatio * timeElapsed) / 1e18;
+
+        loan.accruedInterest += interestAccrued;
+        loan.lastInterestAccrualTime = block.timestamp;
+    }
+
+    /// @notice Accrue penalty for a loan (internal use)
+    function _accruePenalty(Loan storage loan) internal {
+        if (!loan.active) return;
+
+        if (block.timestamp <= loan.endTime + 3 days) {
+            return;
+        }
+
+        uint256 penaltyStart = loan.endTime;
+
+        // Calculate penalty from max(lastPenaltyAccrualTimestamp, penaltyStart)
+        uint256 from = loan.lastPenaltyAccrualTime;
+        if (from == 0 || from < penaltyStart) {
+            from = penaltyStart;
+        }
+
+        if (block.timestamp <= from) {
+            return;
+        }
+
+        uint256 overdueSeconds = block.timestamp - from;
+        uint256 overdueDays = (overdueSeconds + 1 days - 1) / 1 days;
+
+        uint256 base = loan.borrowedAmount; // principal
+
+        uint256 delta =
+            (base * penaltyRatio * overdueDays) / 10000;
+
+        loan.accruedPenalty += delta;
+        loan.lastPenaltyAccrualTime = block.timestamp;
+    }
+
+
+    /// @notice Admin seize NFT after loan is overdue beyond grace period
+    function seizeOverdueNFT(uint256 tokenId) external onlyRole(DEFAULT_ADMIN_ROLE) {
+        Loan storage loan = loans[tokenId];
+        require(loan.active, "FarmLend: no active loan");
+        require(block.timestamp > loan.endTime + loanGracePeriod, "FarmLend: not overdue enough");
+        
+        vault.releaseNFT(tokenId, msg.sender);
+        loan.active = false;
     }
 
     /**
