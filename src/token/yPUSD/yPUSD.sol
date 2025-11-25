@@ -30,7 +30,6 @@ contract yPUSD is Initializable, ERC20Upgradeable, AccessControlUpgradeable, Pau
 
         cap = _cap;
         _grantRole(DEFAULT_ADMIN_ROLE, admin);
-        _grantRole(MINTER_ROLE, admin);
     }
 
     // Note: Paused/Unpaused events are already defined in PausableUpgradeable

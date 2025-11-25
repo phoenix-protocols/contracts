@@ -2,6 +2,7 @@
 pragma solidity ^0.8.20;
 
 import "forge-std/Test.sol";
+import {console} from "forge-std/console.sol";
 import {PUSD} from "src/token/PUSD/PUSD.sol";
 import {PUSDStorage} from "src/token/PUSD/PUSDStorage.sol";
 import {PUSD_Deployer_Base} from "script/token/base/PUSD_Deployer_Base.sol";
@@ -16,8 +17,14 @@ contract PUSDTest is Test, PUSD_Deployer_Base, PUSD_Upgrader_Base {
 
     uint256 constant CAP = 1_000_000_000 * 1e6;
 
+    bytes32 MINTER_ROLE;
+
     function setUp() public {
         token = _deploy(CAP, admin);
+
+        MINTER_ROLE = token.MINTER_ROLE();
+        vm.prank(admin);
+        token.grantRole(MINTER_ROLE, admin);
     }
 
     // ---------- Initialization related ----------
@@ -40,9 +47,10 @@ contract PUSDTest is Test, PUSD_Deployer_Base, PUSD_Upgrader_Base {
     // ---------- Permission & Business Logic ----------
 
     function test_MinterCanMint() public {
-        vm.prank(admin);
+        vm.startPrank(admin);
         token.mint(user, 100 * 1e6);
         assertEq(token.balanceOf(user), 100 * 1e6);
+        vm.stopPrank();
     }
 
     function test_NonMinterCannotMint() public {
@@ -76,30 +84,21 @@ contract PUSDTest is Test, PUSD_Deployer_Base, PUSD_Upgrader_Base {
     // ---------- MINTER_ROLE Locking Logic ----------
 
     function test_GrantMinterRoleOnceAndLock() public {
+        PUSD grantRoleToken = _deploy(CAP, admin);
         address newMinter = address(0xBEEF);
 
-        assertFalse(token.hasRole(token.MINTER_ROLE(), newMinter));
+        assertFalse(grantRoleToken.hasRole(MINTER_ROLE, admin));
 
         vm.prank(admin);
-        // Adjust indexed check according to PUSDStorage event signature
-        vm.expectEmit(true, true, false, false);
-        emit PUSDStorage.MinterRoleLocked(newMinter, admin);
-        token.grantRole(token.MINTER_ROLE(), newMinter);
+        vm.expectEmit(true, true, false, true);
+        emit PUSDStorage.MinterRoleLocked(admin, admin);
+        grantRoleToken.grantRole(MINTER_ROLE, admin);
 
-        assertTrue(token.hasRole(token.MINTER_ROLE(), newMinter));
-
-        // Again grant MINTER_ROLE (to any address) should fail because of locking
-        vm.prank(admin);
-        vm.expectRevert(bytes("PUSD: MINTER_ROLE permanently locked"));
-        token.grantRole(token.MINTER_ROLE(), user);
-    }
-
-    function test_GrantMinterRoleToExistingMinterAlsoLocks() public {
-        assertTrue(token.hasRole(token.MINTER_ROLE(), admin));
+        assertTrue(grantRoleToken.hasRole(MINTER_ROLE, admin));
 
         vm.prank(admin);
         vm.expectRevert(bytes("PUSD: MINTER_ROLE permanently locked"));
-        token.grantRole(token.MINTER_ROLE(), admin);
+        grantRoleToken.grantRole(MINTER_ROLE, newMinter);
     }
 
     function test_CannotRevokeLockedMinterRole() public {
@@ -107,13 +106,13 @@ contract PUSDTest is Test, PUSD_Deployer_Base, PUSD_Upgrader_Base {
 
         vm.prank(admin);
         vm.expectRevert(bytes("PUSD: Cannot revoke locked MINTER_ROLE"));
-        token.revokeRole(token.MINTER_ROLE(), newMinter);
+        token.revokeRole(MINTER_ROLE, newMinter);
     }
 
     function test_CannotRenounceLockedMinterRole() public {
         vm.prank(admin);
         vm.expectRevert(bytes("PUSD: Cannot renounce locked MINTER_ROLE"));
-        token.renounceRole(token.MINTER_ROLE(), admin);
+        token.renounceRole(MINTER_ROLE, admin);
     }
 
     function test_GrantAndRevokeOtherRoleStillWorks() public {
@@ -165,6 +164,19 @@ contract PUSDTest is Test, PUSD_Deployer_Base, PUSD_Upgrader_Base {
         vm.expectRevert();
         token.mint(user, 1);
     }
+
+    // ---------- View Functions ----------
+
+    function test_DecimalsReturnsFixedSix() public {
+        uint8 d = token.decimals();
+        assertEq(d, 6, "decimals() should always return 6");
+
+        vm.prank(admin);
+        token.mint(user, 1000);
+
+        assertEq(token.decimals(), 6);
+    }
+
 
     // ---------- Events ----------
 

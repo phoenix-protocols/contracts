@@ -16,8 +16,15 @@ contract yPUSDTest is Test, yPUSD_Deployer_Base, yPUSD_Upgrader_Base {
 
     uint256 constant CAP = 1_000_000_000 * 1e6;
 
+    bytes32 MINTER_ROLE;
+
     function setUp() public {
         token = _deploy(CAP, admin);
+        
+        MINTER_ROLE = token.MINTER_ROLE();
+        vm.prank(admin);
+        token.grantRole(MINTER_ROLE, admin);
+
     }
 
     // ---------- Initialization related ----------
@@ -40,9 +47,10 @@ contract yPUSDTest is Test, yPUSD_Deployer_Base, yPUSD_Upgrader_Base {
     // ---------- Permission & Business Logic ----------
 
     function test_MinterCanMint() public {
-        vm.prank(admin);
+        vm.startPrank(admin);
         token.mint(user, 100 * 1e6);
         assertEq(token.balanceOf(user), 100 * 1e6);
+        vm.stopPrank();
     }
 
     function test_NonMinterCannotMint() public {
@@ -73,6 +81,69 @@ contract yPUSDTest is Test, yPUSD_Deployer_Base, yPUSD_Upgrader_Base {
         assertEq(token.balanceOf(user), 60 * 1e6);
     }
 
+    // ---------- MINTER_ROLE Locking Logic ----------
+
+    function test_GrantMinterRoleOnceAndLock() public {
+        yPUSD grantRoleToken = _deploy(CAP, admin);
+        address newMinter = address(0xBEEF);
+
+        assertFalse(grantRoleToken.hasRole(MINTER_ROLE, admin));
+
+        vm.prank(admin);
+        vm.expectEmit(true, true, false, true);
+        emit yPUSDStorage.MinterRoleLocked(admin, admin);
+        grantRoleToken.grantRole(MINTER_ROLE, admin);
+
+        assertTrue(grantRoleToken.hasRole(MINTER_ROLE, admin));
+
+        vm.prank(admin);
+        vm.expectRevert(bytes("yPUSD: MINTER_ROLE permanently locked"));
+        grantRoleToken.grantRole(MINTER_ROLE, newMinter);
+    }
+
+    function test_CannotRevokeLockedMinterRole() public {
+        address newMinter = address(0xBEEF);
+
+        vm.prank(admin);
+        vm.expectRevert(bytes("yPUSD: Cannot revoke locked MINTER_ROLE"));
+        token.revokeRole(MINTER_ROLE, newMinter);
+    }
+
+    function test_CannotRenounceLockedMinterRole() public {
+        vm.prank(admin);
+        vm.expectRevert(bytes("yPUSD: Cannot renounce locked MINTER_ROLE"));
+        token.renounceRole(MINTER_ROLE, admin);
+    }
+
+    function test_GrantAndRevokeOtherRoleStillWorks() public {
+        bytes32 OTHER_ROLE = keccak256("OTHER_ROLE");
+        address other = address(0xBEEF);
+
+        // grant OTHER_ROLE
+        vm.prank(admin);
+        token.grantRole(OTHER_ROLE, other);
+        assertTrue(token.hasRole(OTHER_ROLE, other));
+
+        // revoke OTHER_ROLE
+        vm.prank(admin);
+        token.revokeRole(OTHER_ROLE, other);
+        assertFalse(token.hasRole(OTHER_ROLE, other));
+    }
+
+    function test_RenounceOtherRoleStillWorks() public {
+        bytes32 OTHER_ROLE = keccak256("OTHER_ROLE");
+
+        // First grant, lock it
+        vm.prank(admin);
+        token.grantRole(OTHER_ROLE, admin);
+        assertTrue(token.hasRole(OTHER_ROLE, admin));
+
+        // Then renounce
+        vm.prank(admin);
+        token.renounceRole(OTHER_ROLE, admin);
+        assertFalse(token.hasRole(OTHER_ROLE, admin));
+    }
+
     // ---------- Pause Logic ----------
 
     function test_AdminCanPauseAndUnpause() public {
@@ -94,6 +165,18 @@ contract yPUSDTest is Test, yPUSD_Deployer_Base, yPUSD_Upgrader_Base {
         token.mint(user, 1);
     }
 
+    // ---------- View Functions ----------
+
+    function test_DecimalsReturnsFixedSix() public {
+        uint8 d = token.decimals();
+        assertEq(d, 6, "decimals() should always return 6");
+
+        vm.prank(admin);
+        token.mint(user, 1000);
+
+        assertEq(token.decimals(), 6);
+    }
+
     // ---------- Events ----------
 
     function test_MintEmitsMintedEvent() public {
@@ -101,6 +184,27 @@ contract yPUSDTest is Test, yPUSD_Deployer_Base, yPUSD_Upgrader_Base {
         vm.expectEmit(true, false, true, true);
         emit yPUSDStorage.Minted(user, 100 * 1e6, admin);
         token.mint(user, 100 * 1e6);
+    }
+
+    function test_BurnEmitsBurnedEvent() public {
+        vm.startPrank(admin);
+        token.mint(user, 100 * 1e6);
+
+        vm.expectEmit(true, false, true, true);
+        emit yPUSDStorage.Burned(user, 40 * 1e6, admin);
+        token.burn(user, 40 * 1e6);
+        vm.stopPrank();
+    }
+
+    function test_NonMinterCannotBurn() public {
+        // First mint some state
+        vm.prank(admin);
+        token.mint(user, 100 * 1e6);
+
+        // user has no MINTER_ROLE, directly calling burn should revert
+        vm.prank(user);
+        vm.expectRevert();
+        token.burn(user, 10 * 1e6);
     }
 
     // ---------- Upgrade ----------
