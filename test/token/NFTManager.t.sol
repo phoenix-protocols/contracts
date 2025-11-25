@@ -4,11 +4,10 @@ pragma solidity ^0.8.20;
 import "forge-std/Test.sol";
 import {NFTManager} from "src/token/NFTManager/NFTManager.sol";
 import {NFTManagerStorage} from "src/token/NFTManager/NFTManagerStorage.sol";
-import {NFTManager_Deployer_Base} from "script/token/base/NFTManager_Deployer_Base.sol";
-import {NFTManager_Upgrader_Base, NFTManagerV2} from "script/token/base/NFTManager_Upgrader_Base.sol";
+import {NFTManager_Deployer_Base,NFTManagerV2} from "script/token/base/NFTManager_Deployer_Base.sol";
 import {IFarm} from "src/interfaces/IFarm.sol";
 
-contract NFTManagerTest is Test, NFTManager_Deployer_Base, NFTManager_Upgrader_Base {
+contract NFTManagerTest is Test, NFTManager_Deployer_Base {
     NFTManager nft;
     NFTManagerV2 nftV2;
 
@@ -17,8 +16,8 @@ contract NFTManagerTest is Test, NFTManager_Deployer_Base, NFTManager_Upgrader_B
     address user  = address(0xCAFE);
 
     function setUp() public {
-        // Any name/symbol will do; fixed values are sufficient for testing.
-        nft = _deploy("Stake NFT", "sNFT", admin, farm);
+        bytes32 salt = vm.envBytes32("SALT");
+        nft = _deploy("Stake NFT", "sNFT", admin, farm, salt);
     }
 
     // ---------- Initialize & Roles ----------
@@ -249,22 +248,17 @@ contract NFTManagerTest is Test, NFTManager_Deployer_Base, NFTManager_Upgrader_B
     function test_UUPSUpgradeAndNewLogic() public {
         uint256 tokenId = _mintOne();
 
-        // 1. Deploy a V2 implementation
-        NFTManagerV2 implV2 = new NFTManagerV2();
+        // 1. Only admin can upgradeToAndCall
+        vm.startPrank(admin);
+        nftV2 = _upgrade(address(nft), "");
+        vm.stopPrank();
 
-        // 2. Only admin can upgradeToAndCall
-        vm.prank(admin);
-        nft.upgradeToAndCall(address(implV2), "");
-
-        // 3. Use V2's ABI to operate the same proxy address
-        nftV2 = NFTManagerV2(address(nft));
-
-        // 4. Old data should be preserved
+        // 2. Old data should be preserved
         assertEq(nftV2.ownerOf(tokenId), user);
         IFarm.StakeRecord memory r = nftV2.getStakeRecord(tokenId);
         assertEq(r.amount, 100 ether);
 
-        // 5. New logic (version) is available
+        // 3. New logic (version) is available
         vm.prank(admin);
         nftV2.setVersion(2);
         assertEq(nftV2.version(), 2);
@@ -274,7 +268,7 @@ contract NFTManagerTest is Test, NFTManager_Deployer_Base, NFTManager_Upgrader_B
         NFTManagerV2 implV2 = new NFTManagerV2();
 
         vm.prank(user);
-        vm.expectRevert(); // _authorizeUpgrade will revert
+        vm.expectRevert();
         nft.upgradeToAndCall(address(implV2), "");
     }
 }

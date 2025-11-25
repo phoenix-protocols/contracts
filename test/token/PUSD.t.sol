@@ -5,10 +5,11 @@ import "forge-std/Test.sol";
 import {console} from "forge-std/console.sol";
 import {PUSD} from "src/token/PUSD/PUSD.sol";
 import {PUSDStorage} from "src/token/PUSD/PUSDStorage.sol";
-import {PUSD_Deployer_Base} from "script/token/base/PUSD_Deployer_Base.sol";
-import {PUSD_Upgrader_Base, PUSDV2} from "script/token/base/PUSD_Upgrader_Base.sol";
+import {PUSD_Deployer_Base, PUSDV2} from "script/token/base/PUSD_Deployer_Base.sol";
 
-contract PUSDTest is Test, PUSD_Deployer_Base, PUSD_Upgrader_Base {
+contract PUSDTest is Test, PUSD_Deployer_Base {
+    bytes32 salt;
+
     PUSD token;
     PUSDV2 tokenV2;
 
@@ -20,7 +21,8 @@ contract PUSDTest is Test, PUSD_Deployer_Base, PUSD_Upgrader_Base {
     bytes32 MINTER_ROLE;
 
     function setUp() public {
-        token = _deploy(CAP, admin);
+        salt = vm.envBytes32("SALT");
+        token = _deploy(CAP, admin, salt);
 
         MINTER_ROLE = token.MINTER_ROLE();
         vm.prank(admin);
@@ -84,7 +86,7 @@ contract PUSDTest is Test, PUSD_Deployer_Base, PUSD_Upgrader_Base {
     // ---------- MINTER_ROLE Locking Logic ----------
 
     function test_GrantMinterRoleOnceAndLock() public {
-        PUSD grantRoleToken = _deploy(CAP, admin);
+        PUSD grantRoleToken = _deploy(CAP, admin, salt);
         address newMinter = address(0xBEEF);
 
         assertFalse(grantRoleToken.hasRole(MINTER_ROLE, admin));
@@ -217,23 +219,19 @@ contract PUSDTest is Test, PUSD_Deployer_Base, PUSD_Upgrader_Base {
         assertEq(token.balanceOf(user), 123 * 1e6);
         assertEq(token.totalSupply(), 123 * 1e6);
 
-        // 2. Upgrade to V2 (only admin has permission)
-        PUSDV2 implV2 = new PUSDV2();
+        // 2. Upgrade to V2 by admin
+        vm.startPrank(admin);
+        tokenV2 = _upgrade(address(token), '');
+        vm.stopPrank();
 
-        vm.prank(admin);
-        token.upgradeToAndCall(address(implV2), '');
-
-        // 3. Use V2 ABI to operate the same proxy address
-        tokenV2 = PUSDV2(address(token));
-
-        // 4. Previous state is preserved
+        // 3. Previous state is preserved
         assertEq(tokenV2.balanceOf(user), 123 * 1e6);
         assertEq(tokenV2.totalSupply(), 123 * 1e6);
         assertEq(tokenV2.cap(), CAP);
         assertTrue(tokenV2.hasRole(tokenV2.DEFAULT_ADMIN_ROLE(), admin));
         assertTrue(tokenV2.hasRole(tokenV2.MINTER_ROLE(), admin));
 
-        // 5. New logic works
+        // 4. New logic works
         vm.prank(admin);
         tokenV2.setVersion(2);
         assertEq(tokenV2.version(), 2);
@@ -242,9 +240,8 @@ contract PUSDTest is Test, PUSD_Deployer_Base, PUSD_Upgrader_Base {
     function test_UpgradeOnlyAdmin() public {
         PUSDV2 implV2 = new PUSDV2();
 
-        // Non admin should be rejected by _authorizeUpgrade
         vm.prank(user);
         vm.expectRevert();
-        token.upgradeToAndCall(address(implV2), '');
+        token.upgradeToAndCall(address(implV2), "");
     }
 }

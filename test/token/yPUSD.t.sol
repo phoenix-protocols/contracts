@@ -4,10 +4,11 @@ pragma solidity ^0.8.20;
 import "forge-std/Test.sol";
 import {yPUSD} from "src/token/yPUSD/yPUSD.sol";
 import {yPUSDStorage} from "src/token/yPUSD/yPUSDStorage.sol";
-import {yPUSD_Deployer_Base} from "script/token/base/yPUSD_Deployer_Base.sol";
-import {yPUSD_Upgrader_Base, yPUSDV2} from "script/token/base/yPUSD_Upgrader_Base.sol";
+import {yPUSD_Deployer_Base,yPUSDV2} from "script/token/base/yPUSD_Deployer_Base.sol";
 
-contract yPUSDTest is Test, yPUSD_Deployer_Base, yPUSD_Upgrader_Base {
+contract yPUSDTest is Test, yPUSD_Deployer_Base {
+    bytes32 salt;
+
     yPUSD token;
     yPUSDV2 tokenV2;
 
@@ -19,7 +20,8 @@ contract yPUSDTest is Test, yPUSD_Deployer_Base, yPUSD_Upgrader_Base {
     bytes32 MINTER_ROLE;
 
     function setUp() public {
-        token = _deploy(CAP, admin);
+        salt = vm.envBytes32("SALT");
+        token = _deploy(CAP, admin, salt);
         
         MINTER_ROLE = token.MINTER_ROLE();
         vm.prank(admin);
@@ -84,7 +86,7 @@ contract yPUSDTest is Test, yPUSD_Deployer_Base, yPUSD_Upgrader_Base {
     // ---------- MINTER_ROLE Locking Logic ----------
 
     function test_GrantMinterRoleOnceAndLock() public {
-        yPUSD grantRoleToken = _deploy(CAP, admin);
+        yPUSD grantRoleToken = _deploy(CAP, admin, salt);
         address newMinter = address(0xBEEF);
 
         assertFalse(grantRoleToken.hasRole(MINTER_ROLE, admin));
@@ -216,16 +218,12 @@ contract yPUSDTest is Test, yPUSD_Deployer_Base, yPUSD_Upgrader_Base {
         assertEq(token.balanceOf(user), 123 * 1e6);
         assertEq(token.totalSupply(), 123 * 1e6);
 
-        // 2. Upgrade to V2 (only admin has permission)
-        yPUSDV2 implV2 = new yPUSDV2();
+        // 2. Upgrade to V2 by admin
+        vm.startPrank(admin);
+        tokenV2 = _upgrade(address(token), '');
+        vm.stopPrank();
 
-        vm.prank(admin);
-        token.upgradeToAndCall(address(implV2), '');
-
-        // 3. Use V2 ABI to operate the same proxy address
-        tokenV2 = yPUSDV2(address(token));
-
-        // 4. Previous state is preserved
+        // 3. Previous state is preserved
         assertEq(tokenV2.balanceOf(user), 123 * 1e6);
         assertEq(tokenV2.totalSupply(), 123 * 1e6);
         assertEq(tokenV2.cap(), CAP);
@@ -239,11 +237,11 @@ contract yPUSDTest is Test, yPUSD_Deployer_Base, yPUSD_Upgrader_Base {
     }
 
     function test_UpgradeOnlyAdmin() public {
+        // Non admin should be rejected by _authorizeUpgrade
         yPUSDV2 implV2 = new yPUSDV2();
 
-        // Non admin should be rejected by _authorizeUpgrade
         vm.prank(user);
         vm.expectRevert();
-        token.upgradeToAndCall(address(implV2), '');
+        token.upgradeToAndCall(address(implV2), "");
     }
 }

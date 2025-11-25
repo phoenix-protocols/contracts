@@ -12,10 +12,27 @@ contract NFTManager_Deployer is Script, NFTManager_Deployer_Base {
         address admin_ = vm.envAddress("ADMIN");
         address farm_ = vm.envAddress("FARM");
 
+        bytes32 salt = vm.envBytes32("SALT");
+
         vm.startBroadcast();
-        address nftManagerAddr = address(_deploy(name_, symbol_, admin_, farm_));
+        address nftManagerAddr = address(_deploy(name_, symbol_, admin_, farm_, salt));
         vm.stopBroadcast();
 
         console.log("NFTManager proxy addr:", nftManagerAddr);
+
+        // upgrade();
+    }
+
+    function upgrade() external{
+        address proxyAddr = vm.envAddress("NFTMANAGER_PROXY");
+
+        bytes memory initData = ""; // If you have reinitializer, you can encode it here
+
+        vm.startBroadcast();
+        address nftManagerV2Addr = address(_upgrade(proxyAddr, initData));
+        vm.stopBroadcast();
+
+        console.log("NFTManager proxy addr:", proxyAddr);
+        console.log("NFTManagerV2 proxy addr:", nftManagerV2Addr);
     }
 }
