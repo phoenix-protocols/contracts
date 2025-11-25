@@ -15,6 +15,9 @@ abstract contract FarmLendStorage is IFarmLend {
     /// @notice PUSD Oracle for price feeds
     IPUSDOracle public pusdOracle;
 
+    /// @notice Record NFT tokenIds of borrower on borrow and repay
+    mapping(address => uint256[]) public tokenIdsForDebt;
+
     /// @notice Allowed debt tokens (e.g. USDT/USDC)
     mapping(address => bool) public allowedDebtTokens;
 

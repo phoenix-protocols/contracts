@@ -16,8 +16,6 @@ contract MockOracle {
     uint256 public lastTokenPriceTimestamp = 123;
     uint256 public lastPusdPriceTimestamp = 456;
 
-    /* ========== 测试用 setter ========== */
-
     function setTokenUSDPrice(address token, uint256 price) external {
         tokenUsdPrice[token] = price;
     }
@@ -39,8 +37,6 @@ contract MockOracle {
         revertTokenPUSD = _revertTokenPUSD;
         revertPUSDUSD = _revertPUSDUSD;
     }
-
-    /* ========== 只实现 Vault 会用到的 3 个查询函数 ========== */
 
     function getTokenUSDPrice(address token)
         external
