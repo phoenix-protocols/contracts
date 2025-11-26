@@ -153,8 +153,8 @@ contract Vault is Initializable, AccessControlUpgradeable, PausableUpgradeable, 
      */
     function removeAsset(address assetToken) external onlyRole(DEFAULT_ADMIN_ROLE) {
         require(supportedAssets[assetToken], "Vault: Asset not supported");
-        require(IERC20(assetToken).balanceOf(address(this)) == 0, "Vault: Asset has balance");
         require(accumulatedFees[assetToken] == 0, "Vault: Asset has unclaimed fees");
+        require(IERC20(assetToken).balanceOf(address(this)) == 0, "Vault: Asset has balance");
 
         supportedAssets[assetToken] = false;
         string memory name = assetNames[assetToken];

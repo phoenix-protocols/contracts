@@ -153,6 +153,7 @@ contract FarmLend is Initializable, AccessControlUpgradeable, ReentrancyGuardUpg
         total = principal + interest + penalty;
     }
 
+    /// @notice Get health factor for a given NFT
     function getHealthFactor(uint256 tokenId) external view returns (uint256 healthFactor18) {
         Loan storage loan = loans[tokenId];
         if (!loan.active) return type(uint256).max;
@@ -171,6 +172,11 @@ contract FarmLend is Initializable, AccessControlUpgradeable, ReentrancyGuardUpg
 
         // 3. healthFactor18 = collateralTokens_18 * liquidationRatio / (totalDebt * 10000)
         healthFactor18 = (collateralTokens_18 * 10000 * 1e18) / (borrowedAmount_e18 * liquidationRatio);
+    }
+
+    /// @notice Get tokenIds for a given borrower
+    function getTokenIdsForDebt(address borrower) external view returns (uint256[] memory) {
+        return tokenIdsForDebt[borrower];
     }
 
     /// @notice View current accrued interest (including from lastAccrual to now)
@@ -195,7 +201,7 @@ contract FarmLend is Initializable, AccessControlUpgradeable, ReentrancyGuardUpg
         return interest + interestDelta;
     }
 
-    /// @notice View current accrued penalty (including from lastPenaltyAccrual to now)
+    /// @notice View current accrued penalty (including from lastPenaltyAccrualTime to now)
     function _currentPenaltyView(Loan storage loan) internal view returns (uint256) {
         if (!loan.active) return 0;
 
@@ -259,7 +265,10 @@ contract FarmLend is Initializable, AccessControlUpgradeable, ReentrancyGuardUpg
         //    User must approve the contract to transfer this NFT
         nftManager.safeTransferFrom(msg.sender, address(vault), tokenId);
 
-        // 7. Record loan information
+        // 7. Record borrower's nft tokenId
+        tokenIdsForDebt[debtToken].push(tokenId);
+
+        // 8. Record loan information
         loan.active = true;
         loan.borrower = msg.sender;
         loan.remainingCollateralAmount = record.amount;
@@ -350,8 +359,31 @@ contract FarmLend is Initializable, AccessControlUpgradeable, ReentrancyGuardUpg
         loan.borrowedAmount = 0;
         loan.active = false;
         vault.releaseNFT(tokenId, loan.borrower);
+
+        // Remove borrower's nft tokenId
+        bool success = _removeTokenIdFromDebt(msg.sender, tokenId);
+        require(success, "FarmLend: tokenId of borrower not found");
+
         emit FullyRepaid(msg.sender, tokenId, debtToken, amount, block.timestamp);
     }
+
+    function _removeTokenIdFromDebt(address borrower, uint256 tokenId) internal returns (bool) {
+        uint256[] storage arr = tokenIdsForDebt[borrower];
+        uint256 len = arr.length;
+
+        for (uint256 i = 0; i < len; i++) {
+            if (arr[i] == tokenId) {
+                uint256 lastIndex = len - 1;
+                if (i != lastIndex) {
+                    arr[i] = arr[lastIndex];
+                }
+                arr.pop();
+                return true;
+            }
+        }
+        return false;
+    }
+
 
     /// @notice Repay full loan
     function repay(uint256 tokenId) external {
