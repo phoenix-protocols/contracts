@@ -345,11 +345,6 @@ contract FarmUpgradeable is Initializable, AccessControlUpgradeable, ReentrancyG
     }
 
     /**
-     * @notice Cancel PUSD stake
-     * @dev Can only unstake after lock period expires, zero fees
-     * @param amount Amount of PUSD to unstake
-     */
-    /**
      * @notice Cancel PUSD stake (DAO pool mode)
      * @dev Cancel specific stake based on stake record ID
      * @param tokenId Stake record ID to cancel
@@ -897,6 +892,11 @@ contract FarmUpgradeable is Initializable, AccessControlUpgradeable, ReentrancyG
         emit LockPeriodRemoved(lockPeriod);
     }
 
+    /**
+     * @notice Update stake record by FarmLend
+     * @param tokenId Token ID
+     * @param pusdAmount PUSD amount
+     */
     function updateByFarmLend(uint256 tokenId, uint256 pusdAmount) public {
         require(msg.sender == farmLend, "Unauthorized caller");
         NFTManager nftManager = NFTManager(_nftManager);

@@ -254,21 +254,24 @@ contract FarmLend is Initializable, AccessControlUpgradeable, ReentrancyGuardUpg
         Loan storage loan = loans[tokenId];
         require(!loan.active, "FarmLend: loan already active");
 
-        // 4. Compute max borrowable
+        // 4. Ensure loan duration is valid, by checking if it exists in loanDurationInterestRatios
+        require(loanDurationInterestRatios[loanDuration] > 0, "FarmLend: invalid loan duration");
+
+        // 5. Compute max borrowable
         uint256 maxAmount = maxBorrowable(tokenId, debtToken);
         require(amount <= maxAmount, "FarmLend: amount exceeds max borrowable");
 
-        // 5. Transfer lending asset from vault to borrower
+        // 6. Transfer lending asset from vault to borrower
         vault.withdrawTo(msg.sender, debtToken, amount);
 
-        // 6. Move NFT to the vault as collateral
+        // 7. Move NFT to the vault as collateral
         //    User must approve the contract to transfer this NFT
         nftManager.safeTransferFrom(msg.sender, address(vault), tokenId);
 
-        // 7. Record borrower's nft tokenId
-        tokenIdsForDebt[debtToken].push(tokenId);
+        // 8. Record borrower's nft tokenId
+        tokenIdsForDebt[msg.sender].push(tokenId);
 
-        // 8. Record loan information
+        // 9. Record loan information
         loan.active = true;
         loan.borrower = msg.sender;
         loan.remainingCollateralAmount = record.amount;
