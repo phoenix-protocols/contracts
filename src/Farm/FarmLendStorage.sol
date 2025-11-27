@@ -38,7 +38,7 @@ abstract contract FarmLendStorage is IFarmLend {
     /// @notice Penalty Ratio in basis points (e.g. 400 = 4%)
     uint256 public penaltyRatio = 400;
 
-    /// @notice Loan duration in seconds, default 30 days
+    /// @notice Supported loan duration by setting interest ratios
     mapping(uint256 => uint256) public loanDurationInterestRatios;
 
     /// @notice Grace period after due date before admin can seize NFT

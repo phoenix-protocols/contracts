@@ -30,6 +30,10 @@ contract FarmLend is Initializable, AccessControlUpgradeable, ReentrancyGuardUpg
         vault = IVault(_lendingVault);
         farm = _farm;
         pusdOracle = IPUSDOracle(_pusdOracle);
+
+        // Set default loan duration interest ratios
+        loanDurationInterestRatios[30 days] = 110; // 1.1% for 30 days
+        loanDurationInterestRatios[60 days] = 200; // 2% for 60 days
     }
 
     // ---------- Admin configuration ----------
@@ -91,7 +95,7 @@ contract FarmLend is Initializable, AccessControlUpgradeable, ReentrancyGuardUpg
         penaltyRatio = _penaltyRatio;
     }
 
-    /// @notice Update loan duration in seconds
+    /// @notice Set interest ratios for loan durations to make loan durations valid
     function setLoanDurationInterestRatios(uint256 loanDuration, uint256 _loanDurationInterestRatios) external onlyRole(DEFAULT_ADMIN_ROLE) {
         loanDurationInterestRatios[loanDuration] = _loanDurationInterestRatios;
     }
@@ -370,6 +374,7 @@ contract FarmLend is Initializable, AccessControlUpgradeable, ReentrancyGuardUpg
         emit FullyRepaid(msg.sender, tokenId, debtToken, amount, block.timestamp);
     }
 
+    /// @notice Remove tokenId from borrower's debt list
     function _removeTokenIdFromDebt(address borrower, uint256 tokenId) internal returns (bool) {
         uint256[] storage arr = tokenIdsForDebt[borrower];
         uint256 len = arr.length;
@@ -386,7 +391,6 @@ contract FarmLend is Initializable, AccessControlUpgradeable, ReentrancyGuardUpg
         }
         return false;
     }
-
 
     /// @notice Repay full loan
     function repay(uint256 tokenId) external {
