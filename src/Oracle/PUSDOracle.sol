@@ -102,6 +102,78 @@ contract PUSDOracleUpgradeable is Initializable, AccessControlUpgradeable, Pausa
         emit TokenAdded(token, usdFeed, pusdOracle);
     }
 
+    /**
+     * @notice Add DEX-only token support (no Chainlink feed needed, only Uniswap Token/PUSD pair)
+     * @param token Token address (e.g., yPUSD)
+     * @param pusdOracle Token/PUSD Uniswap oracle address
+     * @dev For tokens without Chainlink USD feed, only need Uniswap Token/PUSD pair
+     *      Price represents: 1 Token = X PUSD (e.g., 1.05e18 means 1 Token = 1.05 PUSD)
+     */
+    function addDexOnlyToken(address token, address pusdOracle) external onlyRole(DEFAULT_ADMIN_ROLE) {
+        require(token != address(0), "Invalid token address");
+        require(pusdOracle != address(0), "Invalid oracle address");
+        require(supportedDexOnlyTokens[token].pusdOracle == address(0), "Token already configured");
+        require(tokens[token].usdFeed == address(0), "Token already has Chainlink feed, use addToken instead");
+
+        // Verify oracle returns valid price
+        IUniswapOracle oracle = IUniswapOracle(pusdOracle);
+        (uint256 price, uint256 timestamp) = oracle.twapPrice1e18(token);
+        require(price > 0, "Invalid oracle price");
+        require(block.timestamp >= timestamp, "Price timestamp in future");
+        require(block.timestamp - timestamp <= maxPriceAge, "Price too old");
+
+        supportedDexOnlyTokens[token] = DexOnlyTokenConfig({
+            pusdOracle: pusdOracle,
+            tokenPusdPrice: price,
+            lastUpdated: block.timestamp
+        });
+
+        supportedDexOnlyTokenList.push(token);
+
+        emit DexOnlyTokenAdded(token, pusdOracle, price);
+    }
+
+    /**
+     * @notice Update DEX-only token price from Uniswap oracle
+     * @param token Token address to update
+     */
+    function updateDexOnlyTokenPrice(address token) external onlyRole(PRICE_UPDATER_ROLE) nonReentrant {
+        DexOnlyTokenConfig storage config = supportedDexOnlyTokens[token];
+        require(config.pusdOracle != address(0), "Token not configured as DEX-only");
+
+        IUniswapOracle oracle = IUniswapOracle(config.pusdOracle);
+        (uint256 price, uint256 timestamp) = oracle.twapPrice1e18(token);
+        require(price > 0, "Invalid price");
+        require(block.timestamp >= timestamp, "Price timestamp in future");
+        require(block.timestamp - timestamp <= maxPriceAge, "Price too old");
+
+        uint256 oldPrice = config.tokenPusdPrice;
+        config.tokenPusdPrice = price;
+        config.lastUpdated = block.timestamp;
+
+        emit DexOnlyTokenPriceUpdated(token, price, oldPrice);
+    }
+
+    /**
+     * @notice Batch update DEX-only token prices
+     * @param tokenList Array of token addresses to update
+     */
+    function batchUpdateDexOnlyTokenPrices(address[] calldata tokenList) external onlyRole(PRICE_UPDATER_ROLE) nonReentrant {
+        for (uint256 i = 0; i < tokenList.length; i++) {
+            DexOnlyTokenConfig storage config = supportedDexOnlyTokens[tokenList[i]];
+            if (config.pusdOracle != address(0)) {
+                IUniswapOracle oracle = IUniswapOracle(config.pusdOracle);
+                (uint256 price, uint256 timestamp) = oracle.twapPrice1e18(tokenList[i]);
+                if (price > 0 && block.timestamp >= timestamp && block.timestamp - timestamp <= maxPriceAge) {
+                    uint256 oldPrice = config.tokenPusdPrice;
+                    config.tokenPusdPrice = price;
+                    config.lastUpdated = block.timestamp;
+                    emit DexOnlyTokenPriceUpdated(tokenList[i], price, oldPrice);
+                }
+            }
+        }
+    }
+
     /* ========== Price updates and calculations ========== */
 
     /**
@@ -249,8 +321,25 @@ contract PUSDOracleUpgradeable is Initializable, AccessControlUpgradeable, Pausa
 
     /**
      * @notice Get Token/PUSD price
+     * @dev For DEX-only tokens (like yPUSD), returns price from Uniswap Token/PUSD oracle
+     *      For other tokens, returns Token/PUSD price from configured Chainlink + Uniswap oracle
+     *      In bootstrap mode, returns 1:1 price for whitelisted tokens
      */
     function getTokenPUSDPrice(address token) external view returns (uint256 price, uint256 timestamp) {
+        // Bootstrap mode: return 1:1 price for whitelisted tokens (1 Token = 1e18 PUSD value)
+        if (bootstrapMode && bootstrapTokens[token]) {
+            return (1e18, block.timestamp);
+        }
+
+        // Check if it's a DEX-only token (no Chainlink feed)
+        DexOnlyTokenConfig storage dexOnlyConfig = supportedDexOnlyTokens[token];
+        if (dexOnlyConfig.pusdOracle != address(0)) {
+            require(dexOnlyConfig.tokenPusdPrice > 0, "DEX-only token price not available");
+            require(block.timestamp - dexOnlyConfig.lastUpdated <= maxPriceAge, "DEX-only token price too old");
+            return (dexOnlyConfig.tokenPusdPrice, dexOnlyConfig.lastUpdated);
+        }
+
+        // Normal token handling (with Chainlink feed)
         TokenConfig storage config = tokens[token];
         require(config.usdFeed != address(0) && config.tokenPusdPrice > 0, "No price available");
 
@@ -259,13 +348,31 @@ contract PUSDOracleUpgradeable is Initializable, AccessControlUpgradeable, Pausa
     }
 
     /**
-     * @notice Get Token/USD price (from Chainlink)
+     * @notice Get Token/USD price
      * @param token Token contract address
      * @return price Token/USD price in 18 decimal format
      * @return timestamp Price update timestamp
-     * @dev Get latest price directly from Chainlink price source and normalize to 18 decimal places
+     * @dev For tokens with Chainlink feed: Get directly from Chainlink and normalize to 18 decimals
+     *      For DEX-only tokens: Calculate as Token/PUSD * PUSD/USD
      */
     function getTokenUSDPrice(address token) external view returns (uint256 price, uint256 timestamp) {
+        // Check if it's a DEX-only token
+        DexOnlyTokenConfig storage dexOnlyConfig = supportedDexOnlyTokens[token];
+        if (dexOnlyConfig.pusdOracle != address(0)) {
+            // DEX-only token: Token/USD = Token/PUSD * PUSD/USD
+            require(dexOnlyConfig.tokenPusdPrice > 0, "DEX-only token price not available");
+            require(block.timestamp - dexOnlyConfig.lastUpdated <= maxPriceAge, "DEX-only token price too old");
+            require(pusdUsdPrice > 0, "PUSD/USD price not available");
+            require(block.timestamp - pusdPriceUpdated <= maxPriceAge, "PUSD/USD price too old");
+
+            // Token/USD = Token/PUSD * PUSD/USD / 1e18 (both are 18 decimals)
+            price = (dexOnlyConfig.tokenPusdPrice * pusdUsdPrice) / 1e18;
+            // Use the older timestamp for safety
+            timestamp = dexOnlyConfig.lastUpdated < pusdPriceUpdated ? dexOnlyConfig.lastUpdated : pusdPriceUpdated;
+            return (price, timestamp);
+        }
+
+        // Normal token: Get from Chainlink
         TokenConfig storage config = tokens[token];
         require(config.usdFeed != address(0), "Token not supported");
 
@@ -392,6 +499,14 @@ contract PUSDOracleUpgradeable is Initializable, AccessControlUpgradeable, Pausa
         emit HeartbeatSent(block.timestamp);
     }
 
+    /**
+     * @notice Send heartbeat to Vault (for bootstrap mode or manual refresh)
+     * @dev Allows PRICE_UPDATER_ROLE to send heartbeat without updating prices
+     */
+    function sendHeartbeat() external onlyRole(PRICE_UPDATER_ROLE) {
+        _sendHeartbeat();
+    }
+
     /* ========== Query functions ========== */
 
     function getSupportedTokens() external view returns (address[] memory) {
@@ -401,6 +516,36 @@ contract PUSDOracleUpgradeable is Initializable, AccessControlUpgradeable, Pausa
     function getTokenInfo(address token) external view returns (address usdFeed, uint256 tokenPusdPrice, uint256 lastUpdated) {
         TokenConfig storage config = tokens[token];
         return (config.usdFeed, config.tokenPusdPrice, config.lastUpdated);
+    }
+
+    /**
+     * @notice Get all DEX-only tokens (tokens without Chainlink feed)
+     */
+    function getSupportedDexOnlyTokens() external view returns (address[] memory) {
+        return supportedDexOnlyTokenList;
+    }
+
+    /**
+     * @notice Get DEX-only token info
+     * @param token Token address
+     * @return pusdOracle Oracle address
+     * @return tokenPusdPrice Current Token/PUSD price
+     * @return lastUpdated Last update timestamp
+     */
+    function getDexOnlyTokenInfo(address token) external view returns (
+        address pusdOracle,
+        uint256 tokenPusdPrice,
+        uint256 lastUpdated
+    ) {
+        DexOnlyTokenConfig storage config = supportedDexOnlyTokens[token];
+        return (config.pusdOracle, config.tokenPusdPrice, config.lastUpdated);
+    }
+
+    /**
+     * @notice Check if a token is a DEX-only token
+     */
+    function isDexOnlyToken(address token) external view returns (bool) {
+        return supportedDexOnlyTokens[token].pusdOracle != address(0);
     }
 
     /* ========== Management functions ========== */
@@ -427,8 +572,64 @@ contract PUSDOracleUpgradeable is Initializable, AccessControlUpgradeable, Pausa
         tokens[token].usdFeed = address(0); // Disable by clearing usdFeed
     }
 
+    /**
+     * @notice Remove a DEX-only token (set oracle to zero address)
+     */
+    function removeDexOnlyToken(address token) external onlyRole(DEFAULT_ADMIN_ROLE) {
+        require(supportedDexOnlyTokens[token].pusdOracle != address(0), "Token not configured");
+        delete supportedDexOnlyTokens[token];
+        emit DexOnlyTokenRemoved(token);
+    }
+
     function resetDepegCount() external onlyRole(DEFAULT_ADMIN_ROLE) {
         pusdDepegCount = 0;
+    }
+
+    /* ========== Bootstrap Mode ========== */
+
+    /**
+     * @notice Enable bootstrap mode for system initialization
+     * @dev In bootstrap mode, whitelisted tokens return 1:1 pricing
+     *      This allows initial PUSD minting before DEX liquidity exists
+     */
+    function enableBootstrapMode() external onlyRole(DEFAULT_ADMIN_ROLE) {
+        bootstrapMode = true;
+        emit BootstrapModeEnabled();
+    }
+
+    /**
+     * @notice Disable bootstrap mode after DEX liquidity is established
+     * @dev Should be called after initial PUSD is minted and DEX pairs are created
+     */
+    function disableBootstrapMode() external onlyRole(DEFAULT_ADMIN_ROLE) {
+        bootstrapMode = false;
+        emit BootstrapModeDisabled();
+    }
+
+    /**
+     * @notice Add a token to the bootstrap whitelist
+     * @param token Token address to allow 1:1 pricing in bootstrap mode
+     */
+    function addBootstrapToken(address token) external onlyRole(DEFAULT_ADMIN_ROLE) {
+        require(token != address(0), "Invalid token");
+        bootstrapTokens[token] = true;
+        emit BootstrapTokenAdded(token);
+    }
+
+    /**
+     * @notice Remove a token from the bootstrap whitelist
+     * @param token Token address to remove from bootstrap pricing
+     */
+    function removeBootstrapToken(address token) external onlyRole(DEFAULT_ADMIN_ROLE) {
+        bootstrapTokens[token] = false;
+        emit BootstrapTokenRemoved(token);
+    }
+
+    /**
+     * @notice Check if a token can use bootstrap pricing
+     */
+    function isBootstrapToken(address token) external view returns (bool) {
+        return bootstrapMode && bootstrapTokens[token];
     }
 
     /* ========== Upgrade control ========== */

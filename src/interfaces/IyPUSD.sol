@@ -1,18 +1,25 @@
 // SPDX-License-Identifier: MIT
 pragma solidity ^0.8.20;
 
-interface IyPUSD {
-    function mint(address to, uint256 amount) external;
+import {IERC4626} from "@openzeppelin/contracts/interfaces/IERC4626.sol";
 
-    function burn(address from, uint256 amount) external;
-
-    function balanceOf(address account) external view returns (uint256);
-
-    function transfer(address to, uint256 amount) external returns (bool);
-
-    function transferFrom(address from, address to, uint256 amount) external returns (bool);
-
-    function totalSupply() external view returns (uint256);
-
-    function allowance(address owner, address spender) external view returns (uint256);
+/**
+ * @title IyPUSD Interface
+ * @notice ERC-4626 tokenized vault interface for yPUSD
+ */
+interface IyPUSD is IERC4626 {
+    /// @notice Get the current exchange rate (assets per share, scaled by 1e18)
+    function exchangeRate() external view returns (uint256);
+    
+    /// @notice Get the underlying PUSD value of a user's yPUSD holdings
+    function underlyingBalanceOf(address user) external view returns (uint256);
+    
+    /// @notice Inject yield into the vault (only YIELD_INJECTOR_ROLE)
+    function accrueYield(uint256 amount) external;
+    
+    /// @notice Maximum total supply of yPUSD shares
+    function cap() external view returns (uint256);
+    
+    /// @notice Update the cap (only admin)
+    function setCap(uint256 newCap) external;
 }

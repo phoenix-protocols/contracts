@@ -2,6 +2,7 @@
 pragma solidity ^0.8.20;
 
 import "@openzeppelin/contracts-upgradeable/token/ERC721/extensions/ERC721BurnableUpgradeable.sol";
+import "@openzeppelin/contracts-upgradeable/token/ERC721/extensions/ERC721EnumerableUpgradeable.sol";
 import "@openzeppelin/contracts-upgradeable/access/AccessControlUpgradeable.sol";
 import "@openzeppelin/contracts-upgradeable/proxy/utils/Initializable.sol";
 import "@openzeppelin/contracts-upgradeable/proxy/utils/UUPSUpgradeable.sol";
@@ -13,7 +14,13 @@ import {NFTManagerStorage} from "./NFTManagerStorage.sol";
  * @title NFTManager
  * @notice Each NFT represents a single staking record. Metadata is stored on-chain and can be edited by authorized accounts.
  */
-contract NFTManager is Initializable, ERC721BurnableUpgradeable, AccessControlUpgradeable, UUPSUpgradeable, OwnableUpgradeable, NFTManagerStorage {
+contract NFTManager is Initializable, ERC721BurnableUpgradeable, ERC721EnumerableUpgradeable, AccessControlUpgradeable, UUPSUpgradeable, OwnableUpgradeable, NFTManagerStorage {
+    
+    /// @custom:oz-upgrades-unsafe-allow constructor
+    constructor() {
+        _disableInitializers();
+    }
+
     // ---------- Modifiers ----------
     modifier onlyEditor() {
         require(hasRole(METADATA_EDITOR_ROLE, _msgSender()) || _msgSender() == owner(), "NFTManager: not authorized to edit metadata");
@@ -37,6 +44,7 @@ contract NFTManager is Initializable, ERC721BurnableUpgradeable, AccessControlUp
 
     // ---------- Initializer ----------
     /// @notice Used instead of constructor when deploying behind UUPS proxy
+    /// @dev farm_ can be address(0) initially and set later via setFarm()
     function initialize(string memory name_, string memory symbol_, address admin, address farm_) public initializer {
         __ERC721_init(name_, symbol_);
         __AccessControl_init();
@@ -45,8 +53,33 @@ contract NFTManager is Initializable, ERC721BurnableUpgradeable, AccessControlUp
 
         farm = farm_;
         _grantRole(DEFAULT_ADMIN_ROLE, admin);
-        _grantRole(MINTER_ROLE, farm);
-        _grantRole(METADATA_EDITOR_ROLE, farm);
+        if (farm_ != address(0)) {
+            _grantRole(MINTER_ROLE, farm_);
+            _grantRole(METADATA_EDITOR_ROLE, farm_);
+        }
+    }
+
+    // ---------- Admin Functions ----------
+    /**
+     * @notice Set the Farm contract address
+     * @dev Used to resolve circular dependency during deployment
+     * @param farm_ The Farm contract address
+     */
+    function setFarm(address farm_) external onlyAdmin {
+        require(farm_ != address(0), "NFTManager: invalid farm address");
+        
+        // Revoke roles from old farm if exists
+        if (farm != address(0)) {
+            _revokeRole(MINTER_ROLE, farm);
+            _revokeRole(METADATA_EDITOR_ROLE, farm);
+        }
+        
+        // Set new farm and grant roles
+        farm = farm_;
+        _grantRole(MINTER_ROLE, farm_);
+        _grantRole(METADATA_EDITOR_ROLE, farm_);
+        
+        emit FarmUpdated(farm_);
     }
 
     // ---------- Core: Mint Stake NFT ----------
@@ -153,7 +186,9 @@ contract NFTManager is Initializable, ERC721BurnableUpgradeable, AccessControlUp
 
     // ---------- Burn ----------
     function burn(uint256 tokenId) public override onlyEditor {
-        super.burn(tokenId);
+        _requireOwned(tokenId);
+        // Bypass ERC721 approval check since we have role-based access control
+        _update(address(0), tokenId, address(0));
 
         delete _stakeRecords[tokenId];
         if (bytes(_tokenURIs[tokenId]).length != 0) {
@@ -189,10 +224,17 @@ contract NFTManager is Initializable, ERC721BurnableUpgradeable, AccessControlUp
     function _authorizeUpgrade(address newImplementation) internal override onlyRole(DEFAULT_ADMIN_ROLE) {}
 
     // ---------- Multiple Inheritance ----------
-    function supportsInterface(bytes4 interfaceId) public view override(ERC721Upgradeable, AccessControlUpgradeable) returns (bool) {
+    function supportsInterface(bytes4 interfaceId) public view override(ERC721Upgradeable, ERC721EnumerableUpgradeable, AccessControlUpgradeable) returns (bool) {
         return super.supportsInterface(interfaceId);
     }
 
-    // Reserved storage gap
-    uint256[50] private __gap;
+    /// @dev Override required by ERC721Enumerable
+    function _update(address to, uint256 tokenId, address auth) internal override(ERC721Upgradeable, ERC721EnumerableUpgradeable) returns (address) {
+        return super._update(to, tokenId, auth);
+    }
+
+    /// @dev Override required by ERC721Enumerable
+    function _increaseBalance(address account, uint128 amount) internal override(ERC721Upgradeable, ERC721EnumerableUpgradeable) {
+        super._increaseBalance(account, amount);
+    }
 }

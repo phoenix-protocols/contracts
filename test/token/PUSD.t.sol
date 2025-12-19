@@ -244,4 +244,104 @@ contract PUSDTest is Test, PUSD_Deployer_Base {
         vm.expectRevert();
         token.upgradeToAndCall(address(implV2), "");
     }
+
+    // ---------- Additional Tests ----------
+
+    function test_BurnWhenPausedReverts() public {
+        vm.prank(admin);
+        token.mint(user, 100 * 1e6);
+
+        vm.prank(admin);
+        token.pause();
+
+        vm.prank(admin);
+        vm.expectRevert();
+        token.burn(user, 50 * 1e6);
+    }
+
+    function test_PauseOnlyAdmin() public {
+        vm.prank(user);
+        vm.expectRevert();
+        token.pause();
+    }
+
+    function test_UnpauseOnlyAdmin() public {
+        vm.prank(admin);
+        token.pause();
+
+        vm.prank(user);
+        vm.expectRevert();
+        token.unpause();
+    }
+
+    // ---------- ERC20 Transfer Tests ----------
+
+    function test_Transfer() public {
+        vm.prank(admin);
+        token.mint(user, 100 * 1e6);
+
+        vm.prank(user);
+        token.transfer(admin, 30 * 1e6);
+
+        assertEq(token.balanceOf(user), 70 * 1e6);
+        assertEq(token.balanceOf(admin), 30 * 1e6);
+    }
+
+    function test_TransferInsufficientBalance() public {
+        vm.prank(admin);
+        token.mint(user, 100 * 1e6);
+
+        vm.prank(user);
+        vm.expectRevert();
+        token.transfer(admin, 200 * 1e6);
+    }
+
+    function test_Approve_And_TransferFrom() public {
+        vm.prank(admin);
+        token.mint(user, 100 * 1e6);
+
+        vm.prank(user);
+        token.approve(admin, 50 * 1e6);
+
+        assertEq(token.allowance(user, admin), 50 * 1e6);
+
+        vm.prank(admin);
+        token.transferFrom(user, admin, 50 * 1e6);
+
+        assertEq(token.balanceOf(user), 50 * 1e6);
+        assertEq(token.balanceOf(admin), 50 * 1e6);
+    }
+
+    function test_TransferFrom_InsufficientAllowance() public {
+        vm.prank(admin);
+        token.mint(user, 100 * 1e6);
+
+        vm.prank(user);
+        token.approve(admin, 30 * 1e6);
+
+        vm.prank(admin);
+        vm.expectRevert();
+        token.transferFrom(user, admin, 50 * 1e6);
+    }
+
+    function test_TotalSupply() public {
+        assertEq(token.totalSupply(), 0);
+
+        vm.prank(admin);
+        token.mint(user, 100 * 1e6);
+        assertEq(token.totalSupply(), 100 * 1e6);
+
+        vm.prank(admin);
+        token.burn(user, 30 * 1e6);
+        assertEq(token.totalSupply(), 70 * 1e6);
+    }
+
+    function test_NameAndSymbol() public view {
+        assertEq(token.name(), "Phoenix USD Token");
+        assertEq(token.symbol(), "PUSD");
+    }
+
+    function test_Cap() public view {
+        assertEq(token.cap(), CAP);
+    }
 }

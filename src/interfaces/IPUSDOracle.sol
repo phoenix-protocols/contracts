@@ -4,12 +4,20 @@ pragma solidity ^0.8.20;
 interface IPUSDOracle {
     /* ========== Structs ========== */
 
-    // Token management
+    // Token with Chainlink feed
     struct TokenConfig {
         address usdFeed; // Chainlink Token/USD price source
         address pusdOracle; // Token/PUSD oracle address
         uint256 tokenPusdPrice; // Token/PUSD price (18 decimal places)
         uint256 lastUpdated; // Last update time
+    }
+
+    // DEX-only token (no Chainlink feed, only Uniswap Token/PUSD pair)
+    // For tokens like yPUSD that don't have Chainlink USD feed
+    struct DexOnlyTokenConfig {
+        address pusdOracle;      // Uniswap Token/PUSD oracle address
+        uint256 tokenPusdPrice;  // Token/PUSD price (18 decimals), e.g. 1.05e18 means 1 Token = 1.05 PUSD
+        uint256 lastUpdated;     // Price last update time
     }
 
     /* ========== Events ========== */
@@ -22,11 +30,27 @@ interface IPUSDOracle {
     event PUSDDepegPauseTriggered(uint256 deviation);
     event PUSDDepegRecovered();
     event HeartbeatSent(uint256 timestamp);
+    // DEX-only token events (tokens without Chainlink feed, only Uniswap Token/PUSD pair)
+    event DexOnlyTokenAdded(address indexed token, address oracle, uint256 initialPrice);
+    event DexOnlyTokenPriceUpdated(address indexed token, uint256 newPrice, uint256 oldPrice);
+    event DexOnlyTokenRemoved(address indexed token);
+    // Bootstrap mode events
+    event BootstrapModeEnabled();
+    event BootstrapModeDisabled();
+    event BootstrapTokenAdded(address indexed token);
+    event BootstrapTokenRemoved(address indexed token);
 
     /* ========== Core Functions ========== */
 
     // ----------- Token management -----------
     function addToken(address token, address usdFeed, address pusdOracle) external;
+
+    // ----------- DEX-only token management (no Chainlink feed) -----------
+    function addDexOnlyToken(address token, address pusdOracle) external;
+
+    function updateDexOnlyTokenPrice(address token) external;
+
+    function batchUpdateDexOnlyTokenPrices(address[] calldata tokenList) external;
 
     // ----------- Price updates -----------
     function updateTokenPUSDPrice(address token) external;
@@ -44,6 +68,17 @@ interface IPUSDOracle {
 
     function getTokenInfo(address token) external view returns (address usdFeed, uint256 tokenPusdPrice, uint256 lastUpdated);
 
+    // ----------- DEX-only token queries -----------
+    function getSupportedDexOnlyTokens() external view returns (address[] memory);
+
+    function getDexOnlyTokenInfo(address token) external view returns (
+        address pusdOracle,
+        uint256 tokenPusdPrice,
+        uint256 lastUpdated
+    );
+
+    function isDexOnlyToken(address token) external view returns (bool);
+
     // ----------- Depeg & maintenance -----------
     function checkPUSDDepeg() external;
 
@@ -53,7 +88,20 @@ interface IPUSDOracle {
 
     function emergencyDisableToken(address token) external;
 
+    function removeDexOnlyToken(address token) external;
+
     function resetDepegCount() external;
+
+    // ----------- Bootstrap mode -----------
+    function enableBootstrapMode() external;
+
+    function disableBootstrapMode() external;
+
+    function addBootstrapToken(address token) external;
+
+    function removeBootstrapToken(address token) external;
+
+    function isBootstrapToken(address token) external view returns (bool);
 
     // ----------- Version control -----------
     function getVersion() external pure returns (string memory);

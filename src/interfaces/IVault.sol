@@ -20,11 +20,11 @@ interface IVault {
 
     function getPUSDAssetValue(address asset, uint256 pusdAmount) external view returns (uint256 amount, uint256 referenceTimestamp);
 
-    function pause() external view returns (bool);
+    function pause() external;
 
     function paused() external view returns (bool);
 
-    function unpause() external view returns (bool);
+    function unpause() external;
 
     function heartbeat() external;
 
@@ -33,4 +33,13 @@ interface IVault {
     function releaseNFT(uint256 tokenId, address to) external;
 
     function withdrawNFT(uint256 tokenId, address to) external;
+
+    // Reward reserve management
+    function addRewardReserve(uint256 amount) external;
+
+    function withdrawRewardReserve(address to, uint256 amount) external;
+
+    function distributeReward(address to, uint256 amount) external returns (bool success);
+
+    function getRewardReserve() external view returns (uint256);
 }

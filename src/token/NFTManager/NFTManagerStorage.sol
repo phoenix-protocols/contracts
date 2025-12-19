@@ -26,4 +26,8 @@ contract NFTManagerStorage {
 
     event BaseURIUpdated(string newBaseURI);
     event MinterRoleLocked(address indexed account, address indexed admin);
+    event FarmUpdated(address indexed newFarm);
+
+    // Reserved storage gap for future upgrades
+    uint256[50] private __gap;
 }

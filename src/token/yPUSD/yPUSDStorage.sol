@@ -1,19 +1,28 @@
 // SPDX-License-Identifier: MIT
 pragma solidity ^0.8.20;
 
+/**
+ * @title yPUSD Storage
+ * @notice Storage layout for yPUSD ERC-4626 Vault
+ */
 contract yPUSDStorage {
-    /* ========== Role Definitions ========== */
+    /* ========== Constants ========== */
+    
+    /// @notice Role for injecting yield into the vault
+    bytes32 public constant YIELD_INJECTOR_ROLE = keccak256("YIELD_INJECTOR_ROLE");
+
+    /* ========== Storage Variables ========== */
+    
+    /// @notice Maximum total supply of yPUSD shares
     uint256 public cap;
-    bytes32 public constant MINTER_ROLE = keccak256("MINTER_ROLE");
 
-    // Lock status for MINTER_ROLE: once set to true, can never be modified
-    bool public minterRoleLocked;
+    /* ========== Events ========== */
+    
+    /// @notice Emitted when yield is injected into the vault
+    event YieldAccrued(uint256 amount, uint256 totalAssets, uint256 newExchangeRate);
 
-    // Core business events
-    event Minted(address indexed to, uint256 amount, address indexed minter);
-    event Burned(address indexed from, uint256 amount, address indexed burner);
-    event MinterRoleLocked(address indexed minter, address indexed admin);
-
-    // Placeholder
-    uint256[50] private __gap;
+    /* ========== Storage Gap ========== */
+    
+    /// @dev Reserved storage space for future upgrades
+    uint256[49] private __gap;
 }

@@ -3,7 +3,9 @@ pragma solidity ^0.8.20;
 
 import "@openzeppelin/contracts-upgradeable/access/AccessControlUpgradeable.sol";
 import "@openzeppelin/contracts-upgradeable/utils/ReentrancyGuardUpgradeable.sol";
+import "@openzeppelin/contracts-upgradeable/proxy/utils/UUPSUpgradeable.sol";
 import {IERC20} from "lib/openzeppelin-contracts/contracts/token/ERC20/IERC20.sol";
+import {SafeERC20} from "lib/openzeppelin-contracts/contracts/token/ERC20/utils/SafeERC20.sol";
 import "@openzeppelin/contracts-upgradeable/proxy/utils/Initializable.sol";
 import "@openzeppelin/contracts/token/ERC20/extensions/IERC20Metadata.sol";
 import "../token/NFTManager/NFTManager.sol";
@@ -12,7 +14,9 @@ import "../interfaces/IFarm.sol";
 import "./FarmLendStorage.sol";
 import "../interfaces/IPUSDOracle.sol";
 
-contract FarmLend is Initializable, AccessControlUpgradeable, ReentrancyGuardUpgradeable, FarmLendStorage {
+contract FarmLend is Initializable, AccessControlUpgradeable, ReentrancyGuardUpgradeable, UUPSUpgradeable, FarmLendStorage {
+    using SafeERC20 for IERC20;
+
     uint256 public constant MAX_PRICE_AGE = 3600; // 1 hour
 
     constructor() {
@@ -20,8 +24,11 @@ contract FarmLend is Initializable, AccessControlUpgradeable, ReentrancyGuardUpg
     }
 
     function initialize(address admin, address _nftManager, address _lendingVault, address _pusdOracle, address _farm) external initializer {
-        _grantRole(DEFAULT_ADMIN_ROLE, admin);
+        __AccessControl_init();
         __ReentrancyGuard_init();
+        __UUPSUpgradeable_init();
+        
+        _grantRole(DEFAULT_ADMIN_ROLE, admin);
 
         require(_nftManager != address(0), "FarmLend: zero NFTManager address");
         require(_lendingVault != address(0), "FarmLend: zero vault address");
@@ -31,6 +38,14 @@ contract FarmLend is Initializable, AccessControlUpgradeable, ReentrancyGuardUpg
         farm = _farm;
         pusdOracle = IPUSDOracle(_pusdOracle);
 
+        // Set default collateral ratios (must be set here for upgradeable contracts)
+        liquidationRatio = 12500; // 125%
+        targetCollateralRatio = 13000; // 130%
+        liquidationBonus = 300; // 3%
+        penaltyRatio = 50; // 0.5% per day (was 4%, too aggressive)
+        loanGracePeriod = 7 days;
+        penaltyGracePeriod = 3 days;
+        
         // Set default loan duration interest ratios
         loanDurationInterestRatios[30 days] = 110; // 1.1% for 30 days
         loanDurationInterestRatios[60 days] = 200; // 2% for 60 days
@@ -55,7 +70,7 @@ contract FarmLend is Initializable, AccessControlUpgradeable, ReentrancyGuardUpg
     /// @notice Update liquidation collateral ratio (e.g. 12500 = 125%)
     function setLiquidationRatio(uint16 newLiquidationRatio) external onlyRole(DEFAULT_ADMIN_ROLE) {
         require(newLiquidationRatio >= 10000, "FarmLend: CR below 100%");
-        require(newLiquidationRatio < targetRatio, "FarmLend: must be < targetRatio");
+        require(newLiquidationRatio < targetCollateralRatio, "FarmLend: must be < targetCollateralRatio");
 
         uint16 old = liquidationRatio;
         liquidationRatio = newLiquidationRatio;
@@ -64,30 +79,30 @@ contract FarmLend is Initializable, AccessControlUpgradeable, ReentrancyGuardUpg
     }
 
     /// @notice Update target healthy collateral ratio (e.g. 13000 = 130%)
-    function setTargetRatio(uint16 newTargetRatio) external onlyRole(DEFAULT_ADMIN_ROLE) {
-        require(newTargetRatio >= liquidationRatio, "FarmLend: must be >= liquidationRatio");
-        require(newTargetRatio >= 10000, "FarmLend: CR below 100%");
+    function setTargetCollateralRatio(uint16 newTargetCollateralRatio) external onlyRole(DEFAULT_ADMIN_ROLE) {
+        require(newTargetCollateralRatio >= liquidationRatio, "FarmLend: must be >= liquidationRatio");
+        require(newTargetCollateralRatio >= 10000, "FarmLend: CR below 100%");
 
-        uint16 old = targetRatio;
-        targetRatio = newTargetRatio;
+        uint16 old = targetCollateralRatio;
+        targetCollateralRatio = newTargetCollateralRatio;
 
-        emit TargetRatioUpdated(old, newTargetRatio);
+        emit TargetCollateralRatioUpdated(old, newTargetCollateralRatio);
     }
 
     /// @notice Update both CR parameters in a single call (recommended)
-    function setCollateralRatios(uint16 newLiquidationRatio, uint16 newTargetRatio) external onlyRole(DEFAULT_ADMIN_ROLE) {
+    function setCollateralRatios(uint16 newLiquidationRatio, uint16 newTargetCollateralRatio) external onlyRole(DEFAULT_ADMIN_ROLE) {
         require(newLiquidationRatio >= 10000, "FarmLend: liquidationRatio < 100%");
-        require(newTargetRatio >= 10000, "FarmLend: targetRatio < 100%");
-        require(newLiquidationRatio < newTargetRatio, "FarmLend: liquidation < target");
+        require(newTargetCollateralRatio >= 10000, "FarmLend: targetCollateralRatio < 100%");
+        require(newLiquidationRatio < newTargetCollateralRatio, "FarmLend: liquidation < target");
 
         uint16 oldLiq = liquidationRatio;
-        uint16 oldTar = targetRatio;
+        uint16 oldTar = targetCollateralRatio;
 
         liquidationRatio = newLiquidationRatio;
-        targetRatio = newTargetRatio;
+        targetCollateralRatio = newTargetCollateralRatio;
 
         emit LiquidationRatioUpdated(oldLiq, newLiquidationRatio);
-        emit TargetRatioUpdated(oldTar, newTargetRatio);
+        emit TargetCollateralRatioUpdated(oldTar, newTargetCollateralRatio);
     }
 
     /// @notice Update penalty ratio in basis points (e.g. 100 = 1%)
@@ -103,6 +118,18 @@ contract FarmLend is Initializable, AccessControlUpgradeable, ReentrancyGuardUpg
     /// @notice Update loan grace period in seconds
     function setLoanGracePeriod(uint256 _loanGracePeriod) external onlyRole(DEFAULT_ADMIN_ROLE) {
         loanGracePeriod = _loanGracePeriod;
+    }
+
+    /// @notice Update penalty grace period in seconds
+    function setPenaltyGracePeriod(uint256 _penaltyGracePeriod) external onlyRole(DEFAULT_ADMIN_ROLE) {
+        require(_penaltyGracePeriod <= loanGracePeriod, "FarmLend: penalty grace > loan grace");
+        penaltyGracePeriod = _penaltyGracePeriod;
+    }
+
+    /// @notice Update liquidation bonus in basis points (e.g. 300 = 3%)
+    function setLiquidationBonus(uint16 _liquidationBonus) external onlyRole(DEFAULT_ADMIN_ROLE) {
+        require(_liquidationBonus <= 1000, "FarmLend: bonus too high"); // max 10%
+        liquidationBonus = _liquidationBonus;
     }
 
     // ---------- View helpers ----------
@@ -127,10 +154,10 @@ contract FarmLend is Initializable, AccessControlUpgradeable, ReentrancyGuardUpg
         //    collateralTokens_18 = collateralPUSD_18 / tokenPrice
         uint256 collateralTokens_18 = (collateralPUSD_18 * 1e18) / tokenPrice;
 
-        // 4. Apply liquidation ratio (bps)
+        // 4. Apply liquidation ratio (bps, explicit uint256 cast for consistency)
         //
         //    maxBorrow_18 = collateralTokens_18 * 10000 / liquidationRatio
-        uint256 maxBorrow_18 = (collateralTokens_18 * 10000) / liquidationRatio;
+        uint256 maxBorrow_18 = (collateralTokens_18 * 10000) / uint256(liquidationRatio);
 
         // 5. Convert from 1e18 decimals → debt token decimals
         uint8 debtDecimals = IERC20Metadata(debtToken).decimals();
@@ -158,6 +185,8 @@ contract FarmLend is Initializable, AccessControlUpgradeable, ReentrancyGuardUpg
     }
 
     /// @notice Get health factor for a given NFT
+    /// @dev healthFactor < 1e18 means the loan is liquidatable
+    ///      Uses total debt (principal + interest + penalty) for calculation
     function getHealthFactor(uint256 tokenId) external view returns (uint256 healthFactor18) {
         Loan storage loan = loans[tokenId];
         if (!loan.active) return type(uint256).max;
@@ -172,15 +201,141 @@ contract FarmLend is Initializable, AccessControlUpgradeable, ReentrancyGuardUpg
         uint256 collateralPUSD_18 = loan.remainingCollateralAmount * 1e12;
         uint256 collateralTokens_18 = (collateralPUSD_18 * 1e18) / tokenPrice;
         uint256 decimal = IERC20Metadata(loan.debtToken).decimals();
-        uint256 borrowedAmount_e18 = loan.borrowedAmount * (10 ** (18 - decimal));
 
-        // 3. healthFactor18 = collateralTokens_18 * liquidationRatio / (totalDebt * 10000)
-        healthFactor18 = (collateralTokens_18 * 10000 * 1e18) / (borrowedAmount_e18 * liquidationRatio);
+        // 3. Get total debt (principal + interest + penalty)
+        (, , , uint256 totalDebt) = getLoanDebt(tokenId);
+        uint256 totalDebt_e18 = totalDebt * (10 ** (18 - decimal));
+
+        // 4. healthFactor18 = collateralTokens_18 * 10000 / (totalDebt * liquidationRatio)
+        //    healthFactor < 1e18 means collateral ratio < liquidationRatio, i.e. liquidatable
+        healthFactor18 = (collateralTokens_18 * 10000 * 1e18) / (totalDebt_e18 * uint256(liquidationRatio));
     }
 
     /// @notice Get tokenIds for a given borrower
     function getTokenIdsForDebt(address borrower) external view returns (uint256[] memory) {
         return tokenIdsForDebt[borrower];
+    }
+
+    /// @notice Get full loan details for a given NFT
+    /// @param tokenId NFT token ID
+    /// @return loan The complete Loan struct
+    function getLoan(uint256 tokenId) external view returns (Loan memory) {
+        return loans[tokenId];
+    }
+
+    /// @notice Get all loans for a given borrower with full details
+    /// @param borrower Address of the borrower
+    /// @return tokenIds Array of NFT token IDs
+    /// @return loanDetails Array of Loan structs
+    function getLoansForBorrower(address borrower) external view returns (uint256[] memory tokenIds, Loan[] memory loanDetails) {
+        tokenIds = tokenIdsForDebt[borrower];
+        uint256 len = tokenIds.length;
+        loanDetails = new Loan[](len);
+        
+        for (uint256 i = 0; i < len; i++) {
+            loanDetails[i] = loans[tokenIds[i]];
+        }
+    }
+
+    /// @notice Get all active loans summary for a borrower
+    /// @param borrower Address of the borrower
+    /// @return tokenIds Array of NFT token IDs with active loans
+    /// @return principals Array of principal amounts
+    /// @return totalDebts Array of total debts (principal + interest + penalty)
+    /// @return healthFactors Array of health factors (1e18 precision)
+    function getBorrowerLoansSummary(address borrower) external view returns (
+        uint256[] memory tokenIds,
+        uint256[] memory principals,
+        uint256[] memory totalDebts,
+        uint256[] memory healthFactors
+    ) {
+        uint256[] memory allTokenIds = tokenIdsForDebt[borrower];
+        uint256 len = allTokenIds.length;
+        
+        tokenIds = new uint256[](len);
+        principals = new uint256[](len);
+        totalDebts = new uint256[](len);
+        healthFactors = new uint256[](len);
+        
+        for (uint256 i = 0; i < len; i++) {
+            uint256 tokenId = allTokenIds[i];
+            Loan storage loan = loans[tokenId];
+            
+            tokenIds[i] = tokenId;
+            principals[i] = loan.borrowedAmount;
+            
+            (, , , totalDebts[i]) = getLoanDebt(tokenId);
+            
+            // Get health factor (returns max uint256 if inactive)
+            if (loan.active) {
+                (uint256 tokenPrice, ) = pusdOracle.getTokenPUSDPrice(loan.debtToken);
+                if (tokenPrice > 0) {
+                    uint256 collateralPUSD_18 = loan.remainingCollateralAmount * 1e12;
+                    uint256 collateralTokens_18 = (collateralPUSD_18 * 1e18) / tokenPrice;
+                    uint256 decimal = IERC20Metadata(loan.debtToken).decimals();
+                    uint256 totalDebt_e18 = totalDebts[i] * (10 ** (18 - decimal));
+                    if (totalDebt_e18 > 0) {
+                        healthFactors[i] = (collateralTokens_18 * 10000 * 1e18) / (totalDebt_e18 * uint256(liquidationRatio));
+                    } else {
+                        healthFactors[i] = type(uint256).max;
+                    }
+                }
+            } else {
+                healthFactors[i] = type(uint256).max;
+            }
+        }
+    }
+
+    /// @notice Get liquidation price for a loan
+    /// @dev Returns the debt token price (in PUSD, 1e18 precision) at which the loan becomes liquidatable
+    ///      When token price rises above this threshold, loan will be liquidatable
+    /// @param tokenId NFT token ID
+    /// @return liquidationPrice The price threshold (1e18 precision, PUSD per 1 debt token)
+    /// @return currentPrice Current debt token price (1e18 precision)
+    /// @return safetyMargin How far current price is from liquidation (percentage, 1e18 = 100%)
+    function getLiquidationPrice(uint256 tokenId) external view returns (
+        uint256 liquidationPrice,
+        uint256 currentPrice,
+        uint256 safetyMargin
+    ) {
+        Loan storage loan = loans[tokenId];
+        require(loan.active, "FarmLend: no active loan");
+
+        // Get total debt
+        (, , , uint256 totalDebt) = getLoanDebt(tokenId);
+        require(totalDebt > 0, "FarmLend: no debt");
+
+        // Get current price
+        (currentPrice, ) = pusdOracle.getTokenPUSDPrice(loan.debtToken);
+        require(currentPrice > 0, "FarmLend: invalid price");
+
+        // Get collateral and debt decimals
+        uint256 collateralPUSD = loan.remainingCollateralAmount; // 6 decimals
+        uint8 debtDecimals = IERC20Metadata(loan.debtToken).decimals();
+
+        // Liquidation occurs when:
+        //   collateral (in debt token units) <= totalDebt * liquidationRatio / 10000
+        //
+        // collateral in debt token units = collateralPUSD / tokenPrice
+        // So liquidation price = (collateralPUSD * 10000) / (totalDebt * liquidationRatio)
+        //
+        // Normalize to 1e18:
+        //   liquidationPrice = (collateralPUSD * 1e12 * 10000 * 1e18) / (totalDebt * (10^(18-debtDecimals)) * liquidationRatio)
+        
+        uint256 collateralPUSD_18 = collateralPUSD * 1e12;
+        uint256 totalDebt_18 = totalDebt * (10 ** (18 - debtDecimals));
+
+        // liquidationPrice (1e18) = collateral (1e18) * 10000 / (debt (1e18) * liquidationRatio)
+        liquidationPrice = (collateralPUSD_18 * 10000 * 1e18) / (totalDebt_18 * uint256(liquidationRatio));
+
+        // Safety margin: how much room before liquidation
+        // safetyMargin = (liquidationPrice - currentPrice) / liquidationPrice
+        // If currentPrice >= liquidationPrice, margin is 0 (already liquidatable)
+        if (currentPrice >= liquidationPrice) {
+            safetyMargin = 0;
+        } else {
+            safetyMargin = ((liquidationPrice - currentPrice) * 1e18) / liquidationPrice;
+        }
     }
 
     /// @notice View current accrued interest (including from lastAccrual to now)
@@ -200,7 +355,7 @@ contract FarmLend is Initializable, AccessControlUpgradeable, ReentrancyGuardUpg
         uint256 interestRatio = loanDurationInterestRatios[loan.loanDuration];
 
         uint256 timeElapsed = block.timestamp - from;
-        uint256 interestDelta = (loan.borrowedAmount * interestRatio * timeElapsed) / 1e18;
+        uint256 interestDelta = (loan.borrowedAmount * interestRatio * timeElapsed) / (10000 * loan.loanDuration);
 
         return interest + interestDelta;
     }
@@ -211,7 +366,7 @@ contract FarmLend is Initializable, AccessControlUpgradeable, ReentrancyGuardUpg
 
         uint256 penalty = loan.accruedPenalty;
 
-        if (block.timestamp <= loan.endTime + 3 days) {
+        if (block.timestamp <= loan.endTime + penaltyGracePeriod) {
             return penalty;
         }
 
@@ -270,6 +425,10 @@ contract FarmLend is Initializable, AccessControlUpgradeable, ReentrancyGuardUpg
 
         // 7. Move NFT to the vault as collateral
         //    User must approve the contract to transfer this NFT
+        require(
+            nftManager.getApproved(tokenId) == address(this) || nftManager.isApprovedForAll(msg.sender, address(this)),
+            "FarmLend: Please approve NFT first"
+        );
         nftManager.safeTransferFrom(msg.sender, address(vault), tokenId);
 
         // 8. Record borrower's nft tokenId
@@ -298,6 +457,20 @@ contract FarmLend is Initializable, AccessControlUpgradeable, ReentrancyGuardUpg
     /// @param tokenId NFT token ID
     /// @param amount Amount to repay
     function repay(uint256 tokenId, uint256 amount) external nonReentrant {
+        _repay(tokenId, amount);
+    }
+
+    /// @notice Repay full loan
+    function repayFull(uint256 tokenId) external nonReentrant {
+        (, , , uint256 totalDebt) = getLoanDebt(tokenId);
+        require(totalDebt > 0, "FarmLend: no debt");
+        _repay(tokenId, totalDebt);
+    }
+
+    /// @notice Internal repay logic
+    /// @param tokenId NFT token ID
+    /// @param amount Amount to repay
+    function _repay(uint256 tokenId, uint256 amount) internal {
         Loan storage loan = loans[tokenId];
         require(loan.active, "FarmLend: no active loan");
         require(amount > 0, "FarmLend: zero amount");
@@ -321,8 +494,8 @@ contract FarmLend is Initializable, AccessControlUpgradeable, ReentrancyGuardUpg
         address debtToken = loan.debtToken;
         require(IERC20(debtToken).balanceOf(msg.sender) >= amount, "FarmLend: insufficient balance");
 
-        // Transfer tokens
-        IERC20(debtToken).transferFrom(msg.sender, address(vault), amount);
+        // Transfer tokens via Vault (user only needs to approve Vault)
+        vault.depositFor(msg.sender, debtToken, amount);
 
         // Repay prior: Penalty -> Interest -> Principal
         uint256 remaining = amount;
@@ -368,7 +541,7 @@ contract FarmLend is Initializable, AccessControlUpgradeable, ReentrancyGuardUpg
         vault.releaseNFT(tokenId, loan.borrower);
 
         // Remove borrower's nft tokenId
-        bool success = _removeTokenIdFromDebt(msg.sender, tokenId);
+        bool success = _removeTokenIdFromDebt(loan.borrower, tokenId);
         require(success, "FarmLend: tokenId of borrower not found");
 
         emit FullyRepaid(msg.sender, tokenId, debtToken, amount, block.timestamp);
@@ -392,12 +565,6 @@ contract FarmLend is Initializable, AccessControlUpgradeable, ReentrancyGuardUpg
         return false;
     }
 
-    /// @notice Repay full loan
-    function repay(uint256 tokenId) external {
-        (, , , uint256 totalDebt) = getLoanDebt(tokenId);
-        this.repay(tokenId, totalDebt);
-    }
-
     /// @notice Accrue interest for a loan (internal use)
     function _accrueInterest(Loan storage loan) internal {
         if (!loan.active) return;
@@ -414,7 +581,7 @@ contract FarmLend is Initializable, AccessControlUpgradeable, ReentrancyGuardUpg
 
         uint256 timeElapsed = block.timestamp - from;
 
-        uint256 interestAccrued = (loan.borrowedAmount * interestRatio * timeElapsed) / (1e4 * 365 days);
+        uint256 interestAccrued = (loan.borrowedAmount * interestRatio * timeElapsed) / (10000 * loan.loanDuration);
 
         loan.accruedInterest += interestAccrued;
         loan.lastInterestAccrualTime = block.timestamp;
@@ -424,7 +591,7 @@ contract FarmLend is Initializable, AccessControlUpgradeable, ReentrancyGuardUpg
     function _accruePenalty(Loan storage loan) internal {
         if (!loan.active) return;
 
-        if (block.timestamp <= loan.endTime + 3 days) {
+        if (block.timestamp <= loan.endTime + penaltyGracePeriod) {
             return;
         }
 
@@ -484,22 +651,32 @@ contract FarmLend is Initializable, AccessControlUpgradeable, ReentrancyGuardUpg
         Loan storage loan = loans[tokenId];
         require(loan.active, "FarmLend: no active loan");
 
-        // 1. Check if loan is liquidatable:
-        //    maxBorrowable(tokenId) <= borrowedAmount
+        // 1. Accrue interest and penalty first to get accurate total debt
+        _accrueInterest(loan);
+        _accruePenalty(loan);
+
+        // 2. Get total debt (principal + interest + penalty)
+        uint256 principal = loan.borrowedAmount;
+        uint256 interest = loan.accruedInterest;
+        uint256 penalty = loan.accruedPenalty;
+        uint256 totalDebt = principal + interest + penalty;
+
+        // 3. Check if loan is liquidatable:
+        //    maxBorrowable(tokenId) <= totalDebt (not just principal)
         uint256 maxBorrow = maxBorrowable(tokenId, loan.debtToken);
-        require(maxBorrow <= loan.borrowedAmount, "FarmLend: not liquidatable");
+        require(maxBorrow <= totalDebt, "FarmLend: not liquidatable");
 
-        // 2. Read stake/collateral data
+        // 4. Read stake/collateral data
         uint256 C = loan.remainingCollateralAmount; // PUSD (6 decimals)
-        uint256 B = loan.borrowedAmount; // debt tokens (token decimals)
+        uint256 B = totalDebt; // total debt in debt tokens (token decimals)
 
-        // 3. Fetch oracle price:
+        // 5. Fetch oracle price:
         //    P = PUSD per 1 debtToken (1e18 precision)
         (uint256 tokenPrice, uint256 lastTs) = pusdOracle.getTokenPUSDPrice(loan.debtToken);
         require(tokenPrice > 0 && lastTs != 0, "FarmLend: invalid price");
         require(block.timestamp - lastTs <= MAX_PRICE_AGE, "FarmLend: stale price");
 
-        // 4. Normalize C and B into unified 1e18 precision
+        // 6. Normalize C and B into unified 1e18 precision
         // PUSD is 6 decimals → convert to 1e18
         uint256 C18 = C * 1e12;
 
@@ -507,14 +684,14 @@ contract FarmLend is Initializable, AccessControlUpgradeable, ReentrancyGuardUpg
         uint8 debtDecimals = IERC20Metadata(loan.debtToken).decimals();
         uint256 B18 = B * (10 ** (18 - debtDecimals));
 
-        // 5. Prepare CR-related ratios (convert bps → 1e18)
-        uint256 t = targetRatio * 1e14; // e.g. 13000 bps → 1.3e18
-        uint256 bonus = liquidationBonus * 1e14; // e.g. 500 bps → 0.05e18
+        // 7. Prepare CR-related ratios (convert bps → 1e18)
+        uint256 t = uint256(targetCollateralRatio) * 1e14; // e.g. 13000 bps → 1.3e18
+        uint256 bonus = uint256(liquidationBonus) * 1e14; // e.g. 500 bps → 0.05e18
 
-        require(t > 1e18 + bonus, "FarmLend: targetCR too low");
+        require(t > 1e18 + bonus, "FarmLend: targetCollateralRatio too low");
 
         //------------------------------------------------------------
-        // 6. Compute liquidation amount x in 18 decimals
+        // 8. Compute liquidation amount x in 18 decimals
         //
         // Formula:
         //   x18 = (B18 * t - C18 / tokenPrice) / (t - 1 - bonus)
@@ -540,7 +717,7 @@ contract FarmLend is Initializable, AccessControlUpgradeable, ReentrancyGuardUpg
         uint256 x18 = (numerator * 1e18) / denominator;
         require(x18 > 0, "FarmLend: x=0");
 
-        // 7. Convert x18 back to debtToken decimals
+        // 9. Convert x18 back to debtToken decimals
         uint256 x = x18 / (10 ** (18 - debtDecimals));
 
         // Liquidator may cap max repayment
@@ -548,40 +725,100 @@ contract FarmLend is Initializable, AccessControlUpgradeable, ReentrancyGuardUpg
         require(x <= B, "FarmLend: repay exceeds debt");
         require(x <= maxRepayAmount, "FarmLend: exceeds liquidator's maxRepayAmount");
 
-        // 8. Liquidator pays x debtTokens into Vault
+        // 10. Liquidator pays x debtTokens into Vault
         vault.depositFor(msg.sender, loan.debtToken, x);
 
         //------------------------------------------------------------
-        // 9. Compute how much PUSD to seize from collateral:
+        // 11. Compute how much PUSD to seize from collateral:
         //    rewardPUSD = (1 + bonus) * x * tokenPrice
         //------------------------------------------------------------
         //
         //    (1 + bonus) = (10000 + bonusBps)/10000
         //
-        uint256 rewardPUSDRaw = (x * (10000 + liquidationBonus) * tokenPrice) / (10000 * 1e18);
+        uint256 rewardPUSDRaw = (x * (10000 + uint256(liquidationBonus)) * tokenPrice) / (10000 * 1e18);
         // rewardPUSDRaw uses tokenPrice (1e18) → adjust to PUSD(6)
         uint256 rewardPUSD = (rewardPUSDRaw * 1e6) / (10 ** debtDecimals);
         require(rewardPUSD <= C, "FarmLend: reward exceeds collateral");
 
-        // 10. Update loan collateral & debt
-        _accrueInterest(loan);
-        _accruePenalty(loan);
-        loan.borrowedAmount = B - x;
+        //------------------------------------------------------------
+        // 10. Distribute repayment across penalty, interest, principal
+        //     Priority: penalty first, then interest, then principal
+        //------------------------------------------------------------
+        uint256 remaining = x;
+
+        // Pay off penalty first
+        if (remaining > 0 && penalty > 0) {
+            uint256 penaltyPaid = remaining >= penalty ? penalty : remaining;
+            loan.accruedPenalty -= penaltyPaid;
+            remaining -= penaltyPaid;
+        }
+
+        // Then pay off interest
+        if (remaining > 0 && interest > 0) {
+            uint256 interestPaid = remaining >= interest ? interest : remaining;
+            loan.accruedInterest -= interestPaid;
+            remaining -= interestPaid;
+        }
+
+        // Finally pay off principal
+        if (remaining > 0) {
+            loan.borrowedAmount -= remaining;
+        }
+
+        // 12. Update collateral
         loan.remainingCollateralAmount = C - rewardPUSD;
 
-        if (loan.borrowedAmount == 0) {
+        // 13. Check if loan is fully paid off
+        if (loan.borrowedAmount == 0 && loan.accruedInterest == 0 && loan.accruedPenalty == 0) {
             loan.active = false;
         }
 
-        // 11. Sync NFT collateral data
+        // 14. Sync NFT collateral data
         IFarm(farm).updateByFarmLend(tokenId, loan.remainingCollateralAmount);
 
-        // 12. Vault pays PUSD reward to liquidator
+        // 15. Vault pays PUSD reward to liquidator
         vault.withdrawPUSDTo(msg.sender, rewardPUSD);
 
         //------------------------------------------------------------
-        // 13. Emit event
+        // 16. Emit event
         //------------------------------------------------------------
         emit Liquidated(tokenId, loan.borrower, msg.sender, loan.debtToken, x, block.timestamp);
     }
+
+    /// @notice Claim remaining collateral after loan is fully liquidated (debt = 0)
+    /// @dev When a loan is fully liquidated, the borrower can claim the remaining NFT collateral
+    /// @param tokenId NFT token ID
+    function claimCollateral(uint256 tokenId) external nonReentrant {
+        Loan storage loan = loans[tokenId];
+        
+        // Loan must be inactive (fully liquidated) and caller must be the original borrower
+        require(!loan.active, "FarmLend: loan still active");
+        require(loan.borrower == msg.sender, "FarmLend: not the borrower");
+        require(loan.remainingCollateralAmount > 0, "FarmLend: no collateral to claim");
+        
+        // Ensure debt is truly zero
+        require(loan.borrowedAmount == 0, "FarmLend: principal not zero");
+        require(loan.accruedInterest == 0, "FarmLend: interest not zero");
+        require(loan.accruedPenalty == 0, "FarmLend: penalty not zero");
+        
+        uint256 remainingCollateral = loan.remainingCollateralAmount;
+        
+        // Clear the loan record
+        loan.remainingCollateralAmount = 0;
+        loan.borrower = address(0);
+        
+        // Remove from borrower's tokenId list
+        _removeTokenIdFromDebt(msg.sender, tokenId);
+        
+        // Release NFT back to borrower
+        vault.releaseNFT(tokenId, msg.sender);
+        
+        emit CollateralClaimed(tokenId, msg.sender, remainingCollateral);
+    }
+
+    // ========== UUPS Upgrade ==========
+
+    /// @notice Authorize upgrade to new implementation
+    /// @dev Only admin can upgrade
+    function _authorizeUpgrade(address newImplementation) internal override onlyRole(DEFAULT_ADMIN_ROLE) {}
 }

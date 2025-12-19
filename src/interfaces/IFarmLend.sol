@@ -26,9 +26,10 @@ interface IFarmLend {
     event FullyRepaid(address indexed borrower, uint256 indexed tokenId, address indexed debtToken, uint256 repaidAmount, uint256 timestamp);
     event Liquidation(address indexed liquidator, uint256 indexed tokenId, address indexed debtToken, uint256 repaidAmount);
     event LiquidationRatioUpdated(uint16 oldValue, uint16 newValue);
-    event TargetRatioUpdated(uint16 oldValue, uint16 newValue);
+    event TargetCollateralRatioUpdated(uint16 oldValue, uint16 newValue);
     event PUSDOracleUpdated(address oldOracle, address newOracle);
     event Liquidated(uint256 indexed tokenId, address indexed borrower, address liquidator, address indexed debtToken, uint256 repaidAmount, uint256 timestamp);
+    event CollateralClaimed(uint256 indexed tokenId, address indexed borrower, uint256 remainingCollateral);
 
     // -------- View functions --------
 
@@ -53,12 +54,12 @@ interface IFarmLend {
     function setLiquidationRatio(uint16 newLiquidationRatio) external;
 
     /// @notice Update target healthy collateral ratio (e.g. 13000 = 130%)
-    function setTargetRatio(uint16 newTargetRatio) external;
+    function setTargetCollateralRatio(uint16 newTargetCollateralRatio) external;
 
     /// @notice Update both CR parameters in a single call (recommended)
-    function setCollateralRatios(uint16 newLiquidationRatio, uint16 newTargetRatio) external;
+    function setCollateralRatios(uint16 newLiquidationRatio, uint16 newTargetCollateralRatio) external;
 
-    /// @notice Update penalty ratio in basis points (e.g. 100 = 1%)
+    /// @notice Update penalty ratio in basis points (e.g. 50 = 0.5%)
     function setPenaltyRatio(uint256 _penaltyRatio) external;
 
     /// @notice Update loan duration interest ratios
@@ -76,11 +77,14 @@ interface IFarmLend {
     function repay(uint256 tokenId, uint256 amount) external;
 
     /// @notice Repay full loan
-    function repay(uint256 tokenId) external;
+    function repayFull(uint256 tokenId) external;
 
     /// @notice Admin seize NFT after loan is overdue beyond grace period
     function seizeOverdueNFT(uint256 tokenId) external;
 
     /// @notice Liquidate an under-collateralized loan backed by a staking NFT
     function liquidate(uint256 tokenId, uint256 maxRepayAmount) external;
+
+    /// @notice Claim remaining collateral after loan is fully liquidated (debt = 0)
+    function claimCollateral(uint256 tokenId) external;
 }

@@ -27,6 +27,14 @@ abstract contract PUSDOracleStorage is IPUSDOracle {
     uint256 public pusdRecoveryThreshold; // Unpause threshold (basis points)
     uint256 public pusdDepegCount; // Depeg count
 
+    // DEX-only tokens (no Chainlink feed needed, only Uniswap Token/PUSD pair)
+    mapping(address => DexOnlyTokenConfig) public supportedDexOnlyTokens; // Token => Config
+    address[] public supportedDexOnlyTokenList; // List of all DEX-only tokens
+
+    // Bootstrap mode - allows 1:1 pricing during system initialization
+    bool public bootstrapMode; // If true, use fixed 1:1 pricing for supported tokens
+    mapping(address => bool) public bootstrapTokens; // Tokens that can use bootstrap pricing
+
     /* ========== Constants ========== */
 
     bytes32 public constant PRICE_UPDATER_ROLE = keccak256("PRICE_UPDATER_ROLE");
@@ -40,5 +48,5 @@ abstract contract PUSDOracleStorage is IPUSDOracle {
     uint256 public constant MAX_DEPEG_COUNT = 2; // Maximum depeg count
 
     // PlaceHolder
-    uint256[50] private __gap;
+    uint256[48] private __gap; // Reduced from 50 to 48 due to new state variables
 }

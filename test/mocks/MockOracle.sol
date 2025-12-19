@@ -64,4 +64,27 @@ contract MockOracle {
         if (revertTokenPUSD) revert("oracle tokenPUSD revert");
         return (tokenPusdPrice[token], lastTokenPriceTimestamp);
     }
+
+    function getTokenPUSDValue(address token, uint256 amount) external view returns (uint256 value, uint256 timestamp) {
+        uint256 price = tokenPusdPrice[token];
+        // price is PUSD per 1 token (1e18 precision)
+        // For USDT (6 decimals): value = amount * price / 1e18
+        value = (amount * price) / 1e18;
+        return (value, block.timestamp);
+    }
+    
+    function getPUSDAssetValue(address token, uint256 pusdAmount) external view returns (uint256 assetAmount, uint256 timestamp) {
+        uint256 price = tokenPusdPrice[token];
+        // Reverse: assetAmount = pusdAmount * 1e18 / price
+        assetAmount = (pusdAmount * 1e18) / price;
+        return (assetAmount, block.timestamp);
+    }
+
+    function setLastTokenPriceTimestamp(uint256 ts) external {
+        lastTokenPriceTimestamp = ts;
+    }
+
+    function setLastPusdPriceTimestamp(uint256 ts) external {
+        lastPusdPriceTimestamp = ts;
+    }
 }

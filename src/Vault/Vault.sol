@@ -221,6 +221,66 @@ contract Vault is Initializable, AccessControlUpgradeable, PausableUpgradeable, 
         emit TVLChanged(address(pusdToken), IERC20(address(pusdToken)).balanceOf(address(this)));
     }
 
+    /* ========== Reward Reserve Management ========== */
+
+    /**
+     * @notice Add PUSD to reward reserve
+     * @dev Caller must approve Vault contract to spend PUSD first
+     * @param amount Amount of PUSD to add
+     */
+    function addRewardReserve(uint256 amount) external onlyRole(DEFAULT_ADMIN_ROLE) {
+        require(amount > 0, "Vault: Amount must be > 0");
+        uint256 allowance = IERC20(pusdToken).allowance(msg.sender, address(this));
+        require(allowance >= amount, "Vault: Please approve PUSD first");
+        IERC20(pusdToken).safeTransferFrom(msg.sender, address(this), amount);
+        rewardReserve += amount;
+        emit RewardReserveAdded(msg.sender, amount, rewardReserve);
+    }
+
+    /**
+     * @notice Withdraw PUSD from reward reserve (emergency)
+     * @param to Recipient address
+     * @param amount Amount to withdraw
+     */
+    function withdrawRewardReserve(address to, uint256 amount) external onlyRole(DEFAULT_ADMIN_ROLE) {
+        require(to != address(0), "Vault: Invalid recipient");
+        require(amount > 0 && amount <= rewardReserve, "Vault: Invalid amount");
+        rewardReserve -= amount;
+        IERC20(pusdToken).safeTransfer(to, amount);
+        emit RewardReserveWithdrawn(to, amount, rewardReserve);
+    }
+
+    /**
+     * @notice Distribute rewards from reserve to user
+     * @dev Only callable by Farm contract
+     * @param to Recipient address
+     * @param amount Reward amount
+     * @return success Whether the reward was distributed
+     */
+    function distributeReward(address to, uint256 amount) external nonReentrant returns (bool success) {
+        require(msg.sender == farm, "Vault: Caller is not the farm");
+        if (amount == 0) return true;
+        
+        if (rewardReserve >= amount) {
+            rewardReserve -= amount;
+            IERC20(pusdToken).safeTransfer(to, amount);
+            emit RewardDistributed(to, amount, rewardReserve);
+            return true;
+        } else {
+            // Emit event for monitoring, reward not distributed
+            emit InsufficientRewardReserve(amount, rewardReserve);
+            return false;
+        }
+    }
+
+    /**
+     * @notice Get current reward reserve balance
+     * @return Current reward reserve amount
+     */
+    function getRewardReserve() external view returns (uint256) {
+        return rewardReserve;
+    }
+
     /**
      * @notice Add fee
      * @dev Called by Farm contract to record transaction fees
@@ -229,7 +289,7 @@ contract Vault is Initializable, AccessControlUpgradeable, PausableUpgradeable, 
      */
     function addFee(address assetToken, uint256 amount) external {
         require(msg.sender == farm, "Vault: Caller is not the farm");
-        require(supportedAssets[assetToken], "Vault: Unsupported assetToken");
+        require(supportedAssets[assetToken] || assetToken == pusdToken, "Vault: Unsupported assetToken");
         require(amount > 0, "Vault: Invalid fee amount");
         accumulatedFees[assetToken] += amount;
     }
@@ -243,7 +303,7 @@ contract Vault is Initializable, AccessControlUpgradeable, PausableUpgradeable, 
      * @param to Fee recipient address
      */
     function claimFees(address assetToken, address to) external onlyRole(DEFAULT_ADMIN_ROLE) nonReentrant {
-        require(supportedAssets[assetToken], "Vault: Unsupported assetToken");
+        require(supportedAssets[assetToken] || assetToken == pusdToken, "Vault: Unsupported assetToken");
         uint256 feesToClaim = accumulatedFees[assetToken];
         require(feesToClaim > 0, "Vault: No fees to claim");
 

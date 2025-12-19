@@ -9,7 +9,7 @@ library TickMathCompat {
     uint160 internal constant MAX_SQRT_RATIO = 1461446703485210103287273052203988822378723970342;
 
     function getSqrtRatioAtTick(int24 tick) internal pure returns (uint160 sqrtPriceX96) {
-        // 修复：使用 unchecked 和正确的类型转换
+        // Fix: Use unchecked block and proper type casting to handle negative tick values
         unchecked {
             uint256 absTick = tick < 0 ? uint256(uint24(-tick)) : uint256(uint24(tick));
             require(absTick <= uint256(uint24(MAX_TICK)), 'T');

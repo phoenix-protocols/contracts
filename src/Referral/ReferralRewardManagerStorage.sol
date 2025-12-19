@@ -6,10 +6,10 @@ import "../interfaces/IyPUSD.sol";
 contract ReferralRewardManagerStorage {
     /* ========== Events ========== */
 
-    event RewardAdded(address indexed user, uint256 amount, address indexed manager);
-    event RewardReduced(address indexed user, uint256 amount, address indexed manager);
-    event RewardSet(address indexed user, uint256 oldAmount, uint256 newAmount);
-    event RewardCleared(address indexed user, uint256 amount);
+    event RewardAdded(bytes32 indexed recordId, address indexed user, uint256 amount, address manager);
+    event RewardReduced(bytes32 indexed recordId, address indexed user, uint256 amount, address manager);
+    event RewardSet(bytes32 indexed recordId, address indexed user, uint256 oldAmount, uint256 newAmount);
+    event RewardCleared(bytes32 indexed recordId, address indexed user, uint256 amount);
     event RewardClaimed(address indexed user, uint256 amount);
     event ReferrerSet(address indexed user, address indexed referrer);
     event RewardPoolFunded(address indexed funder, uint256 amount);
@@ -44,6 +44,9 @@ contract ReferralRewardManagerStorage {
     uint256 public minClaimAmount; // Minimum claim amount (token amount)
     uint256 public maxRewardPerUser; // Maximum reward per user (token amount)
     uint16 public maxReferralsPerUser; // Maximum referrals per referrer (max 65535)
+
+    // Idempotency: prevent duplicate records
+    mapping(bytes32 => bool) public processedRecords; // recordId => processed
 
     /* ========== Upgrade Gap ========== */
     uint256[50] private __gap;

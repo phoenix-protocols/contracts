@@ -9,6 +9,10 @@ out/
 
 # Docs
 docs/
+doc/
+
+# Lambda
+lambda/
 
 # Dotenv file
 .env

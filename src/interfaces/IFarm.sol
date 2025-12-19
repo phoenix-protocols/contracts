@@ -46,10 +46,6 @@ interface IFarm {
     // General asset operation events (deposit/withdraw)
     // true=deposit, false=withdraw
     event AssetOperation(address indexed user, address indexed asset, uint256 amount, uint256 netAmount, bool isDeposit);
-    // Token exchange events (PUSD ↔ yPUSD)
-    // true=PUSD→yPUSD, false=yPUSD→PUSD
-    event TokenExchangePUSDToYPUSD(address indexed user, uint256 fromAmount, uint256 toAmount, bool isPUSDToYPUSD);
-    event TokenExchangeYPUSDToPUSD(address indexed user, uint256 fromAmount, uint256 toAmount, bool isPUSDToYPUSD);
 
     // Fee rate update events
     event FeeRatesUpdated(uint256 depositFee, uint256 withdrawFee, uint256 _bridgeFeeRate);
@@ -78,7 +74,6 @@ interface IFarm {
     event BridgePUSDInitiated(uint256 indexed sourceChainId, uint256 indexed destChainId, address indexed from, address to, uint256 totalAmount, uint256 netAmount, uint256 fee);
     event BridgePUSDFinalized(uint256 indexed sourceChainId, uint256 indexed destChainId, address indexed from, address to, uint256 amount, uint256 fee, uint256 nonce);
     event BridgeMessengerUpdated(address indexed oldMessenger, address indexed newMessenger);
-    event BridgeFeeRateUpdated(uint256 newFeeRate);
     event BridgeChainSupportUpdated(uint256[] chainIds, bool[] isSupported);
 
     /* ========== Core External Functions ========== */
@@ -86,10 +81,6 @@ interface IFarm {
     function depositAsset(address asset, uint256 amount) external;
 
     function withdrawAsset(address asset, uint256 pusdAmount) external;
-
-    function exchangePUSDToYPUSD(uint256 pusdAmount) external;
-
-    function exchangeYPUSDToPUSD(uint256 ypusdAmount) external;
 
     function stakePUSD(uint256 amount, uint256 lockPeriod) external returns (uint256 tokenId);
 
@@ -112,8 +103,6 @@ interface IFarm {
     function getStakeDetails(address user, uint256 tokenId) external view returns (StakeRecord memory stakeRecord, uint256 pendingReward, uint256 unlockTime, bool isUnlocked, uint256 remainingTime);
 
     function getUserStakeDetails(address user, uint256 offset, uint256 limit, bool activeOnly, uint256 lockPeriod) external view returns (StakeDetail[] memory stakeDetails, uint256 totalCount, bool hasMore);
-
-    function getSystemHealth() external view returns (uint256 totalTVL, uint256 totalPUSDMarketCap);
 
     function batchSetLockPeriodMultipliers(uint256[] calldata lockPeriods, uint16[] calldata multipliers) external;
 

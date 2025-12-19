@@ -30,7 +30,7 @@ abstract contract FarmLendStorage is IFarmLend {
     uint16 public liquidationRatio = 12500;
 
     /// @notice Target healthy Collateral Ratio in basis points (e.g. 13000 = 130%)
-    uint16 public targetRatio = 13000;
+    uint16 public targetCollateralRatio = 13000;
 
     /// @notice Liquidation bonus in basis points (e.g. 300 = 3%)
     uint16 public liquidationBonus = 300; // 3% bonus to liquidators
@@ -44,6 +44,9 @@ abstract contract FarmLendStorage is IFarmLend {
     /// @notice Grace period after due date before admin can seize NFT
     uint256 public loanGracePeriod = 7 days; // 7 days grace period after due date
 
+    /// @notice Grace period after due date before penalty starts accruing
+    uint256 public penaltyGracePeriod = 3 days; // 3 days grace period before penalty
+
     // PlaceHolder
-    uint256[50] private __gap;
+    uint256[49] private __gap;
 }

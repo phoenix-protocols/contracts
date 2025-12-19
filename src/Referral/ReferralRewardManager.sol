@@ -95,25 +95,32 @@ contract ReferralRewardManager is
 
     /**
      * @notice Batch add rewards
+     * @param recordIds Array of unique record IDs for each reward (from backend log)
      * @param users Array of user addresses
      * @param amounts Array of reward amounts
      */
-    function batchAddRewards(address[] calldata users, uint256[] calldata amounts)
+    function batchAddRewards(bytes32[] calldata recordIds, address[] calldata users, uint256[] calldata amounts)
         external
         onlyRole(REWARD_MANAGER_ROLE)
     {
+        require(recordIds.length == users.length, "Array length mismatch");
         require(users.length == amounts.length, "Array length mismatch");
         require(users.length > 0, "Empty arrays");
 
         for (uint256 i = 0; i < users.length; i++) {
-            _addReward(users[i], amounts[i]);
+            require(!processedRecords[recordIds[i]], "Record already processed");
+            processedRecords[recordIds[i]] = true;
+            _addReward(recordIds[i], users[i], amounts[i]);
         }
     }
 
     /**
      * @notice Add reward for single user (internal function)
+     * @param recordId Unique record ID for this reward
+     * @param user User address
+     * @param amount Reward amount
      */
-    function _addReward(address user, uint256 amount) internal {
+    function _addReward(bytes32 recordId, address user, uint256 amount) internal {
         require(user != address(0), "Invalid user address");
         require(amount > 0, "Invalid amount");
 
@@ -123,77 +130,113 @@ contract ReferralRewardManager is
         pendingRewards[user] = newTotal;
         totalPendingRewards += amount;
 
-        emit RewardAdded(user, amount, msg.sender);
+        emit RewardAdded(recordId, user, amount, msg.sender);
     }
 
     /**
      * @notice Batch reduce rewards
+     * @param recordIds Array of unique record IDs for each reduction
      * @param users Array of user addresses
      * @param amounts Array of amounts to reduce
      */
-    function batchReduceRewards(address[] calldata users, uint256[] calldata amounts)
+    function batchReduceRewards(bytes32[] calldata recordIds, address[] calldata users, uint256[] calldata amounts)
         external
         onlyRole(REWARD_MANAGER_ROLE)
     {
+        require(recordIds.length == users.length, "Array length mismatch");
         require(users.length == amounts.length, "Array length mismatch");
 
         for (uint256 i = 0; i < users.length; i++) {
-            require(users[i] != address(0), "Invalid user address");
-            require(amounts[i] > 0, "Invalid amount");
-            require(pendingRewards[users[i]] >= amounts[i], "Insufficient pending rewards");
-
-            pendingRewards[users[i]] -= amounts[i];
-            totalPendingRewards -= amounts[i];
-
-            emit RewardReduced(users[i], amounts[i], msg.sender);
+            _reduceReward(recordIds[i], users[i], amounts[i]);
         }
+    }
+
+    /**
+     * @notice Reduce reward for single user (internal function)
+     */
+    function _reduceReward(bytes32 recordId, address user, uint256 amount) internal {
+        require(!processedRecords[recordId], "Record already processed");
+        require(user != address(0), "Invalid user address");
+        require(amount > 0, "Invalid amount");
+        require(pendingRewards[user] >= amount, "Insufficient pending rewards");
+
+        processedRecords[recordId] = true;
+        pendingRewards[user] -= amount;
+        totalPendingRewards -= amount;
+
+        emit RewardReduced(recordId, user, amount, msg.sender);
     }
 
     /**
      * @notice Batch set rewards
+     * @param recordIds Array of unique record IDs for each set operation
      * @param users Array of user addresses
      * @param amounts Array of reward amounts
      */
-    function batchSetRewards(address[] calldata users, uint256[] calldata amounts)
+    function batchSetRewards(bytes32[] calldata recordIds, address[] calldata users, uint256[] calldata amounts)
         external
         onlyRole(REWARD_MANAGER_ROLE)
     {
+        require(recordIds.length == users.length, "Array length mismatch");
         require(users.length == amounts.length, "Array length mismatch");
 
         for (uint256 i = 0; i < users.length; i++) {
-            require(users[i] != address(0), "Invalid user address");
-            require(amounts[i] <= maxRewardPerUser, "Exceeds max reward per user");
-
-            uint256 oldAmount = pendingRewards[users[i]];
-
-            // Update total pending rewards
-            if (amounts[i] > oldAmount) {
-                totalPendingRewards += (amounts[i] - oldAmount);
-            } else {
-                totalPendingRewards -= (oldAmount - amounts[i]);
-            }
-
-            pendingRewards[users[i]] = amounts[i];
-
-            emit RewardSet(users[i], oldAmount, amounts[i]);
+            _setReward(recordIds[i], users[i], amounts[i]);
         }
     }
 
     /**
+     * @notice Set reward for single user (internal function)
+     */
+    function _setReward(bytes32 recordId, address user, uint256 amount) internal {
+        require(!processedRecords[recordId], "Record already processed");
+        require(user != address(0), "Invalid user address");
+        require(amount <= maxRewardPerUser, "Exceeds max reward per user");
+
+        processedRecords[recordId] = true;
+
+        uint256 oldAmount = pendingRewards[user];
+
+        // Update total pending rewards
+        if (amount > oldAmount) {
+            totalPendingRewards += (amount - oldAmount);
+        } else {
+            totalPendingRewards -= (oldAmount - amount);
+        }
+
+        pendingRewards[user] = amount;
+
+        emit RewardSet(recordId, user, oldAmount, amount);
+    }
+
+    /**
      * @notice Batch clear rewards
+     * @param recordIds Array of unique record IDs for each clear operation
      * @param users Array of user addresses
      */
-    function batchClearRewards(address[] calldata users) external onlyRole(REWARD_MANAGER_ROLE) {
+    function batchClearRewards(bytes32[] calldata recordIds, address[] calldata users) external onlyRole(REWARD_MANAGER_ROLE) {
+        require(recordIds.length == users.length, "Array length mismatch");
+
         for (uint256 i = 0; i < users.length; i++) {
-            require(users[i] != address(0), "Invalid user address");
+            _clearReward(recordIds[i], users[i]);
+        }
+    }
 
-            uint256 amount = pendingRewards[users[i]];
-            if (amount > 0) {
-                pendingRewards[users[i]] = 0;
-                totalPendingRewards -= amount;
+    /**
+     * @notice Clear reward for single user (internal function)
+     */
+    function _clearReward(bytes32 recordId, address user) internal {
+        require(!processedRecords[recordId], "Record already processed");
+        require(user != address(0), "Invalid user address");
 
-                emit RewardCleared(users[i], amount);
-            }
+        processedRecords[recordId] = true;
+
+        uint256 amount = pendingRewards[user];
+        if (amount > 0) {
+            pendingRewards[user] = 0;
+            totalPendingRewards -= amount;
+
+            emit RewardCleared(recordId, user, amount);
         }
     }
 

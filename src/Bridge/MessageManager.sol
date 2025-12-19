@@ -1,30 +1,24 @@
 // SPDX-License-Identifier: UNLICENSED
 pragma solidity ^0.8.20;
 
-import {Initializable} from "@openzeppelin/contracts-upgradeable/proxy/utils/Initializable.sol";
-import "@openzeppelin/contracts-upgradeable/utils/ReentrancyGuardUpgradeable.sol";
-import "@openzeppelin/contracts-upgradeable/access/OwnableUpgradeable.sol";
+import "@openzeppelin/contracts/utils/ReentrancyGuard.sol";
+import "@openzeppelin/contracts/access/Ownable.sol";
 
 import "./MessageManagerStorage.sol";
 
+/**
+ * @title MessageManager
+ * @notice Cross-chain message manager for PUSD bridge
+ * @dev Uses constructor initialization (not upgradeable) with CREATE2 for deterministic addresses
+ */
 contract MessageManager is
-    Initializable,
-    ReentrancyGuardUpgradeable,
-    OwnableUpgradeable,
+    ReentrancyGuard,
+    Ownable,
     MessageManagerStorage
 {
-    constructor() {
-        _disableInitializers();
-    }
-
-    function initialize(
-        address initialOwner,
-        address _poolManagerAddress
-    ) public initializer {
+    constructor(address initialOwner, address _poolManagerAddress) Ownable(initialOwner) {
         poolManagerAddress = _poolManagerAddress;
         nextMessageNumber = 1;
-        __ReentrancyGuard_init();
-        __Ownable_init(initialOwner);
     }
 
     modifier onlyTokenBridge() {
@@ -92,7 +86,7 @@ contract MessageManager is
         uint256 _value,
         uint256 _fee,
         uint256 _nonce
-    ) external onlyTokenBridge nonReentrant {
+    ) external onlyTokenBridge nonReentrant() {
         // Generate message hash
         bytes32 messageHash = keccak256(
             abi.encode(

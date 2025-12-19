@@ -52,10 +52,10 @@ contract FarmUpgradeable is Initializable, AccessControlUpgradeable, ReentrancyG
      * @param _vault Vault contract address
      */
     function initialize(address admin, address _pusdToken, address _ypusdToken, address _vault) public initializer {
-        require(admin != address(0), "Invalid admin address");
-        require(_pusdToken != address(0), "Invalid PUSD address");
-        require(_ypusdToken != address(0), "Invalid yPUSD address");
-        require(_vault != address(0), "Invalid vault address");
+        require(admin != address(0), "Invalid admin");
+        require(_pusdToken != address(0), "Invalid PUSD");
+        require(_ypusdToken != address(0), "Invalid yPUSD");
+        require(_vault != address(0), "Invalid vault");
 
         __AccessControl_init();
         __ReentrancyGuard_init();
@@ -90,14 +90,14 @@ contract FarmUpgradeable is Initializable, AccessControlUpgradeable, ReentrancyG
         require(vault.isValidAsset(asset), "Unsupported asset");
         // Here amount is asset quantity, not USD, need to convert to pusd amount
         (uint256 pusdAmount, uint256 referenceTimestamp) = vault.getTokenPUSDValue(asset, amount);
-        require(pusdAmount > 0, "Invalid deposit amount");
-        require(block.timestamp - referenceTimestamp <= HEALTH_CHECK_TIMEOUT, "Oracle data outdated");
+        require(pusdAmount > 0, "Invalid amount");
+        require(block.timestamp - referenceTimestamp <= HEALTH_CHECK_TIMEOUT, "Oracle outdated");
 
-        require(pusdAmount >= minDepositAmount * (10 ** pusdToken.decimals()), "Amount below minimum");
+        require(pusdAmount >= minDepositAmount * (10 ** pusdToken.decimals()), "Amount below min");
 
-        // Calculate fee
-        uint256 fee = (amount * depositFeeRate) / 10000;
-        uint256 netPUSD = pusdAmount - (pusdAmount * depositFeeRate) / 10000;
+        // Calculate fee (explicit uint256 cast to avoid potential optimizer issues)
+        uint256 fee = (amount * uint256(depositFeeRate)) / 10000;
+        uint256 netPUSD = pusdAmount - (pusdAmount * uint256(depositFeeRate)) / 10000;
 
         // All assets deposited to Vault
         vault.depositFor(msg.sender, asset, amount);
@@ -149,8 +149,8 @@ contract FarmUpgradeable is Initializable, AccessControlUpgradeable, ReentrancyG
 
         UserAssetInfo storage userInfo = userAssets[msg.sender];
 
-        // Calculate withdrawal fee (based on PUSD amount)
-        uint256 pusdFee = (pusdAmount * withdrawFeeRate) / 10000;
+        // Calculate withdrawal fee (based on PUSD amount, explicit uint256 cast)
+        uint256 pusdFee = (pusdAmount * uint256(withdrawFeeRate)) / 10000;
         (uint256 assetFee, uint256 feeReferenceTimestamp) = vault.getPUSDAssetValue(asset, pusdFee);
         require(block.timestamp - feeReferenceTimestamp <= HEALTH_CHECK_TIMEOUT, "Oracle data outdated");
         uint256 netAssetAmount = assetAmount - assetFee;
@@ -183,65 +183,6 @@ contract FarmUpgradeable is Initializable, AccessControlUpgradeable, ReentrancyG
     }
 
     /**
-     * @notice Exchange PUSD to yPUSD
-     * @dev Exchange PUSD to yPUSD with Oracle price check
-     * Farm contract directly handles exchange logic to avoid complex inter-contract calls
-     * @param pusdAmount PUSD amount
-     */
-    function exchangePUSDToYPUSD(uint256 pusdAmount) external nonReentrant whenNotPaused {
-        require(pusdAmount > 0, "Amount must be greater than 0");
-
-        // Check user PUSD balance
-        require(pusdToken.balanceOf(msg.sender) >= pusdAmount, "Insufficient PUSD balance");
-
-        // Get equivalent yPUSD amount from Vault for oracle data freshness check
-        (uint256 ypusdAmount, uint256 referenceTimestamp) = vault.getPUSDAssetValue(address(ypusdToken), pusdAmount);
-        require(block.timestamp - referenceTimestamp <= HEALTH_CHECK_TIMEOUT, "Oracle data outdated");
-
-        // Farm directly handles exchange: 1. Burn PUSD, 2. Mint yPUSD
-        pusdToken.burn(msg.sender, pusdAmount);
-        ypusdToken.mint(msg.sender, ypusdAmount);
-
-        // Update user statistics
-        UserAssetInfo storage userInfo = userAssets[msg.sender];
-        userInfo.lastActionTime = block.timestamp;
-
-        // Update transaction volume statistics
-        totalVolumeUSD += pusdAmount;
-
-        emit TokenExchangePUSDToYPUSD(msg.sender, pusdAmount, ypusdAmount, true);
-    }
-
-    /**
-     * @notice Exchange yPUSD to PUSD
-     * @dev Exchange yPUSD including yield back to PUSD
-     * Farm contract directly handles exchange logic ensuring separation of responsibilities
-     * @param ypusdAmount yPUSD amount
-     */
-    function exchangeYPUSDToPUSD(uint256 ypusdAmount) external nonReentrant whenNotPaused {
-        require(ypusdAmount > 0, "Amount must be greater than 0");
-
-        // Check user yPUSD balance
-        require(ypusdToken.balanceOf(msg.sender) >= ypusdAmount, "Insufficient yPUSD balance");
-
-        // Get equivalent PUSD amount from Vault for oracle data freshness check
-        (uint256 pusdAmount, uint256 referenceTimestamp) = vault.getTokenPUSDValue(address(pusdToken), ypusdAmount);
-        require(block.timestamp - referenceTimestamp <= HEALTH_CHECK_TIMEOUT, "Oracle data outdated");
-
-        // Farm directly handles exchange: 1. Burn yPUSD, 2. Mint PUSD
-        ypusdToken.burn(msg.sender, ypusdAmount);
-        pusdToken.mint(msg.sender, pusdAmount);
-
-        // Update user statistics
-        UserAssetInfo storage userInfo = userAssets[msg.sender];
-        userInfo.lastActionTime = block.timestamp;
-
-        // Update transaction volume statistics
-        totalVolumeUSD += pusdAmount;
-        emit TokenExchangeYPUSDToPUSD(msg.sender, ypusdAmount, pusdAmount, false);
-    }
-
-    /**
      * @notice Stake PUSD to earn mining rewards (DAO pool mode)
      * @dev Each stake recorded independently; rewards accrue ONLY during the lock period (no post-expiry yield)
      * @param amount Amount of PUSD to stake
@@ -261,7 +202,7 @@ contract FarmUpgradeable is Initializable, AccessControlUpgradeable, ReentrancyG
         require(IERC20(address(pusdToken)).allowance(msg.sender, address(this)) >= amount, "Insufficient PUSD allowance. Please approve Farm contract first");
 
         // Directly transfer PUSD from user address to Vault contract
-        pusdToken.transferFrom(msg.sender, address(vault), amount);
+        IERC20(address(pusdToken)).safeTransferFrom(msg.sender, address(vault), amount);
 
         // Set reward multiplier based on lock period
         uint16 multiplier = lockPeriodMultipliers[lockPeriod];
@@ -321,15 +262,16 @@ contract FarmUpgradeable is Initializable, AccessControlUpgradeable, ReentrancyG
         uint256 reward = _calculateStakeReward(stakeRecord);
         uint256 totalReward = reward + stakeRecord.pendingReward;
 
-        if (reward > 0) {
+        if (totalReward > 0) {
             if (compoundRewards) {
-                // Compounding mode: directly add rewards to stake principal
+                // Compounding mode: directly add rewards to stake principal (rewards in PUSD units)
                 stakeRecord.amount += totalReward;
                 stakeRecord.pendingReward = 0;
                 emit StakeRenewal(msg.sender, tokenId, newLockPeriod, totalReward, stakeRecord.amount, true);
             } else {
-                // Traditional mode: distribute rewards to user
-                ypusdToken.mint(msg.sender, totalReward);
+                // Traditional mode: distribute PUSD rewards from reserve
+                bool success = _distributeReward(msg.sender, totalReward);
+                require(success, "Insufficient reward reserve");
                 stakeRecord.pendingReward = 0;
 
                 emit StakeRewardsClaimed(msg.sender, tokenId, totalReward);
@@ -363,8 +305,9 @@ contract FarmUpgradeable is Initializable, AccessControlUpgradeable, ReentrancyG
         uint256 reward = _calculateStakeReward(stakeRecord);
         uint256 totalReward = reward + stakeRecord.pendingReward;
         if (totalReward > 0) {
-            // Directly mint yPUSD as rewards to user
-            ypusdToken.mint(msg.sender, totalReward);
+            // Distribute PUSD rewards from reserve
+            bool success = _distributeReward(msg.sender, totalReward);
+            require(success, "Insufficient reward reserve");
             emit StakeRewardsClaimed(msg.sender, tokenId, totalReward);
         }
 
@@ -395,6 +338,9 @@ contract FarmUpgradeable is Initializable, AccessControlUpgradeable, ReentrancyG
         // Update user operation time
         UserAssetInfo storage userInfo = userAssets[msg.sender];
         userInfo.lastActionTime = block.timestamp;
+        
+        // Remove tokenId from user's tokenIds array
+        _removeTokenIdFromUser(msg.sender, tokenId);
 
         emit StakeOperation(msg.sender, tokenId, amount, 0, false);
     }
@@ -407,6 +353,7 @@ contract FarmUpgradeable is Initializable, AccessControlUpgradeable, ReentrancyG
     function claimStakeRewards(uint256 tokenId) external nonReentrant whenNotPaused {
         NFTManager nftManager = NFTManager(_nftManager);
         require(nftManager.exists(tokenId), "Invaild tokenId");
+        require(nftManager.ownerOf(tokenId) == msg.sender, "Not stake owner");
 
         StakeRecord memory stakeRecord = nftManager.getStakeRecord(tokenId);
         require(stakeRecord.active, "Stake record not found or inactive");
@@ -420,8 +367,9 @@ contract FarmUpgradeable is Initializable, AccessControlUpgradeable, ReentrancyG
 
         nftManager.updateStakeRecord(tokenId, stakeRecord);
 
-        // Directly mint yPUSD as rewards to user
-        ypusdToken.mint(msg.sender, pendingReward);
+        // Distribute PUSD rewards from reserve
+        bool success = _distributeReward(msg.sender, pendingReward);
+        require(success, "Insufficient reward reserve");
 
         emit StakeRewardsClaimed(msg.sender, tokenId, pendingReward);
     }
@@ -463,8 +411,9 @@ contract FarmUpgradeable is Initializable, AccessControlUpgradeable, ReentrancyG
 
         require(totalReward > 0, "No rewards to claim");
 
-        // Directly mint yPUSD as rewards to user
-        ypusdToken.mint(msg.sender, totalReward);
+        // Distribute PUSD rewards from reserve
+        bool success = _distributeReward(msg.sender, totalReward);
+        require(success, "Insufficient reward reserve");
     }
 
     /**
@@ -649,7 +598,7 @@ contract FarmUpgradeable is Initializable, AccessControlUpgradeable, ReentrancyG
         // percentage = effectiveAPY / 10000
         uint256 annualRate = (effectiveAPY * precision) / 10000;
 
-        // Calculate hourly rate for better precision
+        // Calculate second rate for better precision
         uint256 secondRate = annualRate / (365 * 24 * 3600);
 
         // Calculate reward for the time period
@@ -793,7 +742,7 @@ contract FarmUpgradeable is Initializable, AccessControlUpgradeable, ReentrancyG
             StakeRecord memory record = stakes[stakeIndex];
 
             stakeDetails[i] = StakeDetail({
-                tokenId: stakeIndex,
+                tokenId: tokenIds[stakeIndex],
                 amount: record.amount,
                 startTime: record.startTime,
                 lockPeriod: record.lockPeriod,
@@ -810,36 +759,37 @@ contract FarmUpgradeable is Initializable, AccessControlUpgradeable, ReentrancyG
         hasMore = endIndex < totalCount;
     }
 
+    /* ========== Admin Functions ========== */
+
     /**
-     * @notice Get system health status details
-     * @return totalTVL Vault total locked value
-     * @return totalPUSDMarketCap PUSD total market cap
-     *
+     * @dev Internal function to distribute rewards via Vault
+     * @param to Recipient address
+     * @param amount Reward amount
+     * @return success Whether the reward was distributed
      */
-    //  * @return tvlUtilization TVL utilization (PUSD supply/TVL ratio)
-    //  * @return avgDepositPerUser Average deposit per user
-    //  * @return pusdSupply PUSD total supply
-    //  * @return ypusdSupply yPUSD total supply
-    function getSystemHealth() external view returns (uint256 totalTVL, uint256 totalPUSDMarketCap) {
-        // Get basic data
-        // Get Vault's total TVL
-        try vault.getTotalTVL() returns (uint256 tvl) {
-            totalTVL = tvl;
-        } catch {
-            totalTVL = 0;
-        }
-
-        // Get total PUSD market cap
-        try vault.getPUSDMarketCap() returns (uint256 marketCap) {
-            totalPUSDMarketCap = marketCap;
-        } catch {
-            totalPUSDMarketCap = 0;
-        }
-
-        return (totalTVL, totalPUSDMarketCap);
+    function _distributeReward(address to, uint256 amount) internal returns (bool success) {
+        if (amount == 0) return true;
+        return vault.distributeReward(to, amount);
     }
 
-    /* ========== Admin Functions ========== */
+    /**
+     * @dev Internal function to remove tokenId from user's tokenIds array
+     * @param user User address
+     * @param tokenId Token ID to remove
+     */
+    function _removeTokenIdFromUser(address user, uint256 tokenId) internal {
+        uint256[] storage tokenIds = userAssets[user].tokenIds;
+        uint256 len = tokenIds.length;
+        
+        for (uint256 i = 0; i < len; i++) {
+            if (tokenIds[i] == tokenId) {
+                // Move last element to current position, then pop
+                tokenIds[i] = tokenIds[len - 1];
+                tokenIds.pop();
+                return;
+            }
+        }
+    }
 
     /* ========== Multiplier Configuration Management ========== */
     /**
@@ -933,8 +883,8 @@ contract FarmUpgradeable is Initializable, AccessControlUpgradeable, ReentrancyG
         require(pusdToken.balanceOf(msg.sender) >= value, "Insufficient PUSD balance");
         require(isSupportedBridgeChain[destChainId], "Destination chain not supported");
 
-        // Calculate bridge fee (using deposit fee rate)
-        uint256 fee = (value * bridgeFeeRate) / 10000;
+        // Calculate bridge fee (explicit uint256 cast to avoid potential optimizer issues)
+        uint256 fee = (value * uint256(bridgeFeeRate)) / 10000;
         uint256 netAmount = value - fee;
 
         // Burn PUSD from user (total amount including fee)
@@ -1055,12 +1005,6 @@ contract FarmUpgradeable is Initializable, AccessControlUpgradeable, ReentrancyG
         bridgeFeeRate = uint16(_bridgeFeeRate);
 
         emit FeeRatesUpdated(_depositFeeRate, _withdrawFeeRate, _bridgeFeeRate);
-    }
-
-    function setBridgeFeeRate(uint256 _bridgeFeeRate) external onlyRole(OPERATOR_ROLE) {
-        require(_bridgeFeeRate <= type(uint16).max, "Bridge fee exceeds uint16 max");
-        bridgeFeeRate = uint16(_bridgeFeeRate);
-        emit BridgeFeeRateUpdated(_bridgeFeeRate);
     }
 
     function setNFTManager(address nftManager_) external onlyRole(OPERATOR_ROLE) {

@@ -1,37 +1,130 @@
-## 🎯 一、项目概述
+# Phoenix Protocol Smart Contracts
 
-### 1.1 项目定位
+A comprehensive DeFi ecosystem built on Ethereum/Arbitrum, featuring stablecoin operations, yield farming, cross-chain bridging, and referral rewards.
 
-Phoenix PUSD 是一个**基于区块链的 DeFi 生态平台**，通过稳定币 PUSD 和奖励代币 rPUSD，为用户提供：
-- 安全的资产存储和收益
-- 多样化的 DeFi 产品 (Vault、Farm、Oracle、、、LP(未实现))
-- 病毒式增长的多层级推荐体系
-- 游戏化的积分和任务系统
+## Overview
 
-### 1.2 核心价值主张
+Phoenix Protocol provides a suite of smart contracts for:
+- **PUSD Stablecoin** - A collateral-backed stablecoin
+- **Vault** - Secure asset storage with yield generation
+- **Farm & FarmLend** - Yield farming and lending operations
+- **Cross-Chain Bridge** - Seamless asset transfers between chains
+- **Referral System** - Multi-tier reward distribution
+- **NFT Manager** - NFT-based user identity and privileges
 
-**对用户**:
-- 💰 通过 DeFi 操作获得稳定收益
-- 🎁 邀请好友获得持续分成奖励
-- 🎮 完成任务获得积分和特权
-- 🔒 资产安全透明可追溯
-
-**对平台**:
-- 📈 通过推荐体系实现指数级用户增长
-- 💎 通过积分任务提升用户粘性
-- 🔄 建立完整的代币经济闭环
-- 📊 精细化运营和数据分析
-
-### 1.3 技术架构
+## Architecture
 
 ```
-前端 (Vue/React)
-    ↓ HTTPS + JWT
-后端 API (Go + Gin)
-    ↓
-PostgreSQL + Redis
-    ↓
-Blockchain (Ethereum/Arbitrum)
+┌─────────────────────────────────────────────────────────┐
+│                    Frontend (dApp)                       │
+└─────────────────────────────────────────────────────────┘
+                           │
+                           ▼
+┌─────────────────────────────────────────────────────────┐
+│                   Smart Contracts                        │
+│  ┌─────────┐  ┌─────────┐  ┌─────────┐  ┌─────────────┐ │
+│  │  PUSD   │  │  Vault  │  │  Farm   │  │   Bridge    │ │
+│  │ (ERC20) │  │         │  │         │  │ (LayerZero) │ │
+│  └─────────┘  └─────────┘  └─────────┘  └─────────────┘ │
+│  ┌─────────┐  ┌─────────┐  ┌───────────────────────────┐│
+│  │  yPUSD  │  │ Oracle  │  │  ReferralRewardManager   ││
+│  │(ERC4626)│  │         │  │                          ││
+│  └─────────┘  └─────────┘  └───────────────────────────┘│
+└─────────────────────────────────────────────────────────┘
+                           │
+                           ▼
+┌─────────────────────────────────────────────────────────┐
+│              Blockchain (BSC / Arbitrum)                 │
+└─────────────────────────────────────────────────────────┘
 ```
 
----
+## Contracts
+
+| Contract | Description |
+|----------|-------------|
+| `PUSD` | ERC20 stablecoin with minting/burning capabilities |
+| `yPUSD` | ERC4626 yield-bearing vault token |
+| `Vault` | Collateral management and liquidation |
+| `Farm` | Yield farming with staking rewards |
+| `FarmLend` | Lending protocol integration |
+| `PUSDOracle` | Price feed oracle |
+| `MessageManager` | Cross-chain message handling |
+| `NFTManager` | User NFT identity management |
+| `ReferralRewardManager` | Multi-tier referral rewards with idempotency |
+
+## Getting Started
+
+### Prerequisites
+
+- [Foundry](https://book.getfoundry.sh/getting-started/installation)
+- Node.js >= 18
+
+### Installation
+
+```bash
+# Clone the repository
+git clone https://github.com/phoenix-protocols/contracts.git
+cd contracts
+
+# Install dependencies
+forge install
+
+# Build contracts
+forge build
+
+# Run tests
+forge test
+```
+
+### Environment Setup
+
+```bash
+cp .env.example .env
+# Edit .env with your configuration
+```
+
+Required environment variables:
+- `PRIVATE_KEY` - Deployer wallet private key
+- `RPC_URL` - Network RPC endpoint
+- `ETHERSCAN_API_KEY` - For contract verification
+
+## Testing
+
+```bash
+# Run all tests
+forge test
+
+# Run with verbosity
+forge test -vvv
+
+# Run specific test file
+forge test --match-path test/Vault/Vault.t.sol
+
+# Generate gas report
+forge test --gas-report
+```
+
+## Deployment
+
+```bash
+# Deploy to testnet
+./deploy.sh testnet
+
+# Deploy to mainnet
+./deploy.sh mainnet
+
+# Post-deployment configuration
+./post-config.sh
+```
+
+## Security Features
+
+- **Upgradeable Contracts**: UUPS proxy pattern for safe upgrades
+- **Access Control**: Role-based permissions (DEFAULT_ADMIN_ROLE, MINTER_ROLE, etc.)
+- **Idempotency**: Record-based deduplication for batch operations
+- **Reentrancy Guards**: Protection against reentrancy attacks
+- **Pause Mechanism**: Emergency circuit breaker functionality
+
+## License
+
+MIT

@@ -35,8 +35,9 @@ library FullMathCompat {
                 prod0 := sub(prod0, remainder)
             }
 
-            // 修复：使用 unchecked 包装负数操作
-            uint256 twos = denominator & (~denominator + 1);  // 等价于 -denominator & denominator
+            // Fix: Use bitwise operations to avoid negative number issues in Solidity 0.8+
+            // This computes the largest power of 2 divisor of denominator (equivalent to -denominator & denominator)
+            uint256 twos = denominator & (~denominator + 1);
             
             assembly {
                 denominator := div(denominator, twos)

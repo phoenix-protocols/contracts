@@ -53,7 +53,7 @@ contract VaultStorage {
     bytes32 public constant PAUSER_ROLE = keccak256("PAUSER_ROLE"); // Pauser role
     bytes32 public constant ASSET_MANAGER_ROLE = keccak256("ASSET_MANAGER_ROLE"); // Asset admin role
     uint256 public constant HEALTH_CHECK_TIMEOUT = 1 hours; // Oracle health check timeout
-    uint256 public constant TIMELOCK_DELAY = 48 hours; // Large amount withdrawal timelock delay
+    uint256 public constant TIMELOCK_DELAY = 1 hours; // Large amount withdrawal timelock delay
 
     /* ========== Timelock withdrawal related ========== */
 
@@ -72,6 +72,15 @@ contract VaultStorage {
     /* ========== Temporary storage ========== */
     mapping(address => bool) internal _tempAssetCheck; // Temporary asset check mapping
 
+    /* ========== Reward Reserve ========== */
+    uint256 public rewardReserve; // PUSD reserve for staking rewards
+
+    /* ========== Reward Reserve Events ========== */
+    event RewardReserveAdded(address indexed from, uint256 amount, uint256 newTotal);
+    event RewardReserveWithdrawn(address indexed to, uint256 amount, uint256 newTotal);
+    event RewardDistributed(address indexed to, uint256 amount, uint256 remainingReserve);
+    event InsufficientRewardReserve(uint256 required, uint256 available);
+
     // PlaceHolder
-    uint256[50] private __gap;
+    uint256[49] private __gap;
 }
