@@ -4,8 +4,8 @@
 # Phoenix DeFi Multi-Chain Deployment Script
 # ========================================
 # 
-# 优化: 验证失败不会阻塞后续链的部署
-# 每个链部署完成后继续下一个，即使验证失败
+# Optimization: Verification failure won't block subsequent chain deployments
+# After each chain deployment completes, continue to the next one even if verification fails
 #
 # ========================================
 
@@ -63,7 +63,7 @@ deploy_to_chain() {
     fi
 
     # Build verify args if API key provided
-    # 大量重试验证，间隔8秒
+    # Retry verification multiple times with 8-second intervals
     local verify_args=""
     if [ -n "$verify_api_key" ] && [ -n "$verify_url" ]; then
         verify_args="--verify --etherscan-api-key $verify_api_key --verifier-url $verify_url --retries 100 --delay 8"

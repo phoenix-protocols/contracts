@@ -16,13 +16,13 @@ import {yPUSD} from "src/token/yPUSD/yPUSD.sol";
  * @notice Post-deployment configuration for Phoenix Protocol
  * 
  * ARCHITECTURE:
- *   - BSC (BSC Testnet) = Main Chain → Run "main" config (全量配置)
- *   - Other Chains → Run "bridge" config only (只配置跨链)
+ *   - BSC (BSC Testnet) = Main Chain → Run "main" config (full configuration)
+ *   - Other Chains → Run "bridge" config only (bridge configuration only)
  *   - Supported Assets: USDT, USDC only
  * 
  * Usage:
- *   CONFIG_TYPE=main ./post-config.sh bsc-testnet    # BSC主链全量配置
- *   CONFIG_TYPE=bridge ./post-config.sh arb-sepolia  # 其他链只配跨链
+ *   CONFIG_TYPE=main ./post-config.sh bsc-testnet    # BSC main chain full config
+ *   CONFIG_TYPE=bridge ./post-config.sh arb-sepolia  # Other chains bridge config only
  */
 contract PostDeployConfig is Script {
     // Contract addresses (from .env)
@@ -531,6 +531,16 @@ contract PostDeployConfig is Script {
         } else {
             if (ypusd == address(0)) console.log("  WARNING: YPUSD not set, skipping YIELD_INJECTOR_ROLE");
             if (keeper == address(0)) console.log("  WARNING: KEEPER not set, skipping YIELD_INJECTOR_ROLE");
+        }
+        
+        // 5. Vault: Grant PAUSER_ROLE to Oracle (for depeg auto-pause)
+        Vault vaultContract = Vault(vault);
+        bytes32 pauserRole = keccak256("PAUSER_ROLE");
+        if (!vaultContract.hasRole(pauserRole, oracle)) {
+            vaultContract.grantRole(pauserRole, oracle);
+            console.log("  Vault.PAUSER_ROLE granted to Oracle:", oracle);
+        } else {
+            console.log("  Vault.PAUSER_ROLE already granted to Oracle");
         }
     }
 }

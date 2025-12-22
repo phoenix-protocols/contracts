@@ -4,18 +4,18 @@
 # ║              Phoenix Protocol - Post-Deploy Configuration                  ║
 # ╚═══════════════════════════════════════════════════════════════════════════╝
 #
-# 用法:
+# Usage:
 #   ./post-config.sh <chain> <config-type>
 #
-# 测试网:
-#   ./post-config.sh bsc-testnet main         # BSC测试网 - 全量配置(主链)
-#   ./post-config.sh arbitrum-sepolia bridge  # Arb测试网 - 只配跨链
+# Testnet:
+#   ./post-config.sh bsc-testnet main         # BSC Testnet - Full config (main chain)
+#   ./post-config.sh arbitrum-sepolia bridge  # Arb Testnet - Bridge config only
 #
-# 主网:
-#   ./post-config.sh bsc main                 # BSC主网 - 全量配置(主链)
-#   ./post-config.sh arbitrum bridge          # Arbitrum - 只配跨链
-#   ./post-config.sh polygon bridge           # Polygon - 只配跨链
-#   ... (其他链同理)
+# Mainnet:
+#   ./post-config.sh bsc main                 # BSC Mainnet - Full config (main chain)
+#   ./post-config.sh arbitrum bridge          # Arbitrum - Bridge config only
+#   ./post-config.sh polygon bridge           # Polygon - Bridge config only
+#   ... (same for other chains)
 #
 # ════════════════════════════════════════════════════════════════════════════
 
@@ -59,19 +59,19 @@ CONFIG_TYPE=$2
 if [ -z "$CHAIN" ] || [ -z "$CONFIG_TYPE" ]; then
     echo -e "${YELLOW}Phoenix Post-Deploy Configuration${NC}"
     echo ""
-    echo "用法: $0 <chain> <config-type>"
+    echo "Usage: $0 <chain> <config-type>"
     echo ""
     echo "Config Types:"
-    echo "  main   - 全量配置 (只在 BSC/BSC Testnet 主链运行)"
-    echo "  bridge - PUSD跨链配置 (所有链都要运行)"
+    echo "  main   - Full config (only run on BSC/BSC Testnet main chain)"
+    echo "  bridge - PUSD bridge config (run on all chains)"
     echo ""
-    echo "测试网:"
-    echo "  $0 bsc-testnet main           # 先配置主链"
-    echo "  $0 arbitrum-sepolia bridge    # 再配置跨链"
+    echo "Testnet:"
+    echo "  $0 bsc-testnet main           # Configure main chain first"
+    echo "  $0 arbitrum-sepolia bridge    # Then configure bridge"
     echo ""
-    echo "主网:"
-    echo "  $0 bsc main                   # 先配置主链"
-    echo "  $0 arbitrum bridge            # 配置各跨链"
+    echo "Mainnet:"
+    echo "  $0 bsc main                   # Configure main chain first"
+    echo "  $0 arbitrum bridge            # Configure bridge chains"
     echo "  $0 polygon bridge"
     echo "  $0 avalanche bridge"
     echo "  $0 ethereum bridge"

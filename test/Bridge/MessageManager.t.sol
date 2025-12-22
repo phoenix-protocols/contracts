@@ -44,7 +44,7 @@ contract MessageManagerTest is Test {
     );
 
     function setUp() public {
-        // 直接用构造函数部署
+        // Deploy directly using constructor
         manager = new MessageManager(owner, poolManager);
     }
 

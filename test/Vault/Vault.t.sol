@@ -212,7 +212,7 @@ contract VaultTest is Test, Vault_Deployer_Base {
         vm.expectRevert("Vault: Caller is not the farm or farmLend");
         vault.depositFor(user, address(usdt), amount);
 
-        // allowance 不足
+        // Insufficient allowance
         vm.prank(farm);
         vm.expectRevert("Vault: Please approve tokens first");
         vault.depositFor(user, address(usdt), amount);
@@ -220,20 +220,20 @@ contract VaultTest is Test, Vault_Deployer_Base {
         vm.prank(user);
         usdt.approve(address(vault), amount);
 
-        // Oracle 超时
+        // Oracle timeout
         vm.warp(block.timestamp + vault.HEALTH_CHECK_TIMEOUT() + 1);
         vm.prank(farm);
         vm.expectRevert("Vault: Oracle system offline");
         vault.depositFor(user, address(usdt), amount);
 
-        // 正常存款（farm）
+        // Normal deposit (farm)
         vm.warp(block.timestamp - 100);
         vm.prank(farm);
         vault.depositFor(user, address(usdt), amount);
 
         assertEq(usdt.balanceOf(address(vault)), amount);
 
-        // farmLend 也可以
+        // farmLend can also deposit
         vm.prank(user);
         usdt.approve(address(vault), amount);
         vm.prank(farmLend);
@@ -533,7 +533,7 @@ contract VaultTest is Test, Vault_Deployer_Base {
         vm.expectRevert("Not From Farm");
         vault.withdrawNFTByFarm(tokenId, user);
 
-        // 用一个比较早的 startTime 来保证还没到期
+        // Use current timestamp as startTime to ensure it's not expired yet
         _setNFTRecord(tokenId, true, block.timestamp, lockPeriod);
         vm.prank(farm);
         vm.expectRevert("Vault: stake is still locked");
