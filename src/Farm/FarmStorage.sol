@@ -67,6 +67,9 @@ abstract contract FarmStorage is IFarm {
     /* ========== Pool TVL Tracking ========== */
     mapping(uint256 => uint256) public poolTVL; // Total locked value per lock period
 
+    /* ========== Pool Cap Configuration ========== */
+    mapping(uint256 => uint256) public poolCap; // lockPeriod => max TVL
+
     /* ========== Bridge related ========== */
     address public bridgeMessenger;
     mapping(uint256 => bool) public isSupportedBridgeChain; // Supported bridge destination chains

@@ -25,11 +25,12 @@ contract Farm_Deployer is Script, Farm_Deployer_Base {
     }
 
     function upgrade() external {
-        address proxyAddr = vm.envAddress("FARM_PROXY");
+        uint256 deployerPrivateKey = vm.envUint("PRIVATE_KEY");
+        address proxyAddr = vm.envAddress("FARM");
 
         bytes memory initData = ""; // If you have reinitializer, you can encode it here
 
-        vm.startBroadcast();
+        vm.startBroadcast(deployerPrivateKey);
         address farmV2Addr = address(_upgrade(proxyAddr, initData));
         vm.stopBroadcast();
 

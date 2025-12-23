@@ -86,6 +86,12 @@ contract FarmLendTest is Test, FarmLend_Deployer_Base {
         // Setup user2 with NFT
         nftManager.setOwner(TOKEN_ID_2, user2);
         nftManager.setStakeRecord(TOKEN_ID_2, _createStakeRecord(2000e6, true));
+
+        // Approve FarmLend to transfer NFTs (required for borrowWithNFT)
+        vm.prank(user1);
+        nftManager.setApprovalForAll(address(farmLend), true);
+        vm.prank(user2);
+        nftManager.setApprovalForAll(address(farmLend), true);
     }
 
     /// @dev Helper function to create StakeRecord struct
@@ -444,7 +450,7 @@ contract FarmLendTest is Test, FarmLend_Deployer_Base {
         
         // Approve and repay partial
         vm.startPrank(user1);
-        usdt.approve(address(farmLend), 200e6);
+        usdt.approve(address(vault), 200e6);
         farmLend.repay(TOKEN_ID_1, 200e6);
         vm.stopPrank();
         
@@ -472,7 +478,7 @@ contract FarmLendTest is Test, FarmLend_Deployer_Base {
         
         // Approve and repay full
         vm.startPrank(user1);
-        usdt.approve(address(farmLend), totalDebt);
+        usdt.approve(address(vault), totalDebt);
         farmLend.repayFull(TOKEN_ID_1);
         vm.stopPrank();
         
@@ -805,7 +811,7 @@ contract FarmLendTest is Test, FarmLend_Deployer_Base {
         usdt.mint(user1, smallRepay);
         
         vm.startPrank(user1);
-        usdt.approve(address(farmLend), smallRepay);
+        usdt.approve(address(vault), smallRepay);
         farmLend.repay(TOKEN_ID_1, smallRepay);
         vm.stopPrank();
         

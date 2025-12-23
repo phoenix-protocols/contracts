@@ -67,6 +67,7 @@ interface IFarm {
     event MultiplierUpdated(uint256 indexed lockPeriod, uint16 oldMultiplier, uint16 newMultiplier);
     event LockPeriodAdded(uint256 indexed lockPeriod, uint16 multiplier);
     event LockPeriodRemoved(uint256 indexed lockPeriod);
+    event PoolCapUpdated(uint256 indexed lockPeriod, uint256 cap);
     event NFTManagerUpdated(address indexed nftManager);
     event FarmLendUpdated(address indexed farmLend);
 
@@ -104,7 +105,7 @@ interface IFarm {
 
     function getUserStakeDetails(address user, uint256 offset, uint256 limit, bool activeOnly, uint256 lockPeriod) external view returns (StakeDetail[] memory stakeDetails, uint256 totalCount, bool hasMore);
 
-    function batchSetLockPeriodMultipliers(uint256[] calldata lockPeriods, uint16[] calldata multipliers) external;
+    function batchSetLockPeriodConfig(uint256[] calldata lockPeriods, uint16[] calldata multipliers, uint256[] calldata caps) external;
 
     function removeLockPeriod(uint256 lockPeriod) external;
 

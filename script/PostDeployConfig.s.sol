@@ -265,8 +265,15 @@ contract PostDeployConfig is Script {
         // 365 days - 2.0x
         lockPeriods[3] = 181 days;
         multipliers[3] = 20000;
+
+        // Pool caps (0 = no limit)
+        uint256[] memory caps = new uint256[](4);
+        caps[0] = 0;  // 7d - no limit
+        caps[1] = 0;  // 31d - no limit
+        caps[2] = 0;  // 89d - no limit
+        caps[3] = 0;  // 181d - no limit
         
-        farmContract.batchSetLockPeriodMultipliers(lockPeriods, multipliers);
+        farmContract.batchSetLockPeriodConfig(lockPeriods, multipliers, caps);
         
         console.log("  7d=1.0x, 31d=1.2x, 89d=1.5x, 181d=2.0x");
     }

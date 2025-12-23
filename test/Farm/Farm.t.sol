@@ -91,13 +91,20 @@ contract FarmIntegrationTest is Test, Farm_Deployer_Base {
         // Setup lock periods
         uint256[] memory periods = new uint256[](3);
         uint16[] memory multipliers = new uint16[](3);
+        uint256[] memory caps = new uint256[](3);
         periods[0] = 30 days;
         periods[1] = 90 days;
         periods[2] = 180 days;
         multipliers[0] = 10000;  // 1x
         multipliers[1] = 15000;  // 1.5x
         multipliers[2] = 20000;  // 2x
-        farm.batchSetLockPeriodMultipliers(periods, multipliers);
+        caps[0] = 0;  // no limit
+        caps[1] = 0;  // no limit
+        caps[2] = 0;  // no limit
+        farm.batchSetLockPeriodConfig(periods, multipliers, caps);
+
+        // Set max stakes per user (configType=2)
+        farm.updateSystemConfig(2, 1000);
 
         vm.stopPrank();
 
@@ -145,7 +152,7 @@ contract FarmIntegrationTest is Test, Farm_Deployer_Base {
 
         vm.startPrank(user1);
         invalidToken.approve(address(vault), 1000 * 1e6);
-        vm.expectRevert("Unsupported asset");
+        vm.expectRevert("Bad asset");
         farm.depositAsset(address(invalidToken), 1000 * 1e6);
         vm.stopPrank();
     }
@@ -206,7 +213,7 @@ contract FarmIntegrationTest is Test, Farm_Deployer_Base {
         farm.depositAsset(address(usdt), depositAmount);
 
         pusd.approve(address(farm), depositAmount);
-        vm.expectRevert("Unsupported lock period");
+        vm.expectRevert("Invalid period");
         farm.stakePUSD(500 * 1e6, 7 days); // 7 days not supported
         vm.stopPrank();
     }
@@ -214,7 +221,7 @@ contract FarmIntegrationTest is Test, Farm_Deployer_Base {
     function test_StakePUSD_RevertInsufficientBalance() public {
         vm.startPrank(user1);
         pusd.approve(address(farm), 1000 * 1e6);
-        vm.expectRevert("Insufficient PUSD balance");
+        vm.expectRevert("Low PUSD");
         farm.stakePUSD(1000 * 1e6, 30 days);
         vm.stopPrank();
     }
@@ -260,7 +267,7 @@ contract FarmIntegrationTest is Test, Farm_Deployer_Base {
         uint256 tokenId = farm.stakePUSD(stakeAmount, 30 days);
 
         // Try to unstake before lock period ends
-        vm.expectRevert("Still in lock period");
+        vm.expectRevert("Still locked");
         farm.unstakePUSD(tokenId);
         vm.stopPrank();
     }
@@ -280,7 +287,7 @@ contract FarmIntegrationTest is Test, Farm_Deployer_Base {
 
         // User2 tries to unstake
         vm.prank(user2);
-        vm.expectRevert("Not stake owner");
+        vm.expectRevert("Not owner");
         farm.unstakePUSD(tokenId);
     }
 
@@ -381,7 +388,7 @@ contract FarmIntegrationTest is Test, Farm_Deployer_Base {
 
         // User2 tries to claim
         vm.prank(user2);
-        vm.expectRevert("Not stake owner");
+        vm.expectRevert("Not owner");
         farm.claimStakeRewards(tokenId);
     }
 
@@ -400,14 +407,16 @@ contract FarmIntegrationTest is Test, Farm_Deployer_Base {
 
     // ==================== Lock Period Configuration Tests ====================
 
-    function test_BatchSetLockPeriodMultipliers() public {
+    function test_BatchSetLockPeriodConfig() public {
         uint256[] memory periods = new uint256[](1);
         uint16[] memory multipliers = new uint16[](1);
+        uint256[] memory caps = new uint256[](1);
         periods[0] = 365 days;
         multipliers[0] = 30000; // 3x
+        caps[0] = 0;  // no limit
 
         vm.prank(admin);
-        farm.batchSetLockPeriodMultipliers(periods, multipliers);
+        farm.batchSetLockPeriodConfig(periods, multipliers, caps);
 
         // Now 365 days should be valid
         vm.startPrank(user1);
@@ -431,7 +440,7 @@ contract FarmIntegrationTest is Test, Farm_Deployer_Base {
         usdt.approve(address(vault), 1000 * 1e6);
         farm.depositAsset(address(usdt), 1000 * 1e6);
         pusd.approve(address(farm), 500 * 1e6);
-        vm.expectRevert("Unsupported lock period");
+        vm.expectRevert("Invalid period");
         farm.stakePUSD(500 * 1e6, 180 days);
         vm.stopPrank();
     }
@@ -568,7 +577,7 @@ contract FarmIntegrationTest is Test, Farm_Deployer_Base {
 
         // User1 can no longer unstake
         vm.prank(user1);
-        vm.expectRevert("Not stake owner");
+        vm.expectRevert("Not owner");
         farm.unstakePUSD(tokenId);
     }
 

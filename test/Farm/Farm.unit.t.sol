@@ -63,13 +63,20 @@ contract FarmUnitTest is Test, Farm_Deployer_Base {
         // Setup lock periods
         uint256[] memory periods = new uint256[](3);
         uint16[] memory multipliers = new uint16[](3);
+        uint256[] memory caps = new uint256[](3);
         periods[0] = 30 days;
         periods[1] = 90 days;
         periods[2] = 180 days;
         multipliers[0] = 10000;  // 1x
         multipliers[1] = 15000;  // 1.5x
         multipliers[2] = 20000;  // 2x
-        farm.batchSetLockPeriodMultipliers(periods, multipliers);
+        caps[0] = 0;  // no limit
+        caps[1] = 0;  // no limit
+        caps[2] = 0;  // no limit
+        farm.batchSetLockPeriodConfig(periods, multipliers, caps);
+
+        // Set max stakes per user (configType=2)
+        farm.updateSystemConfig(2, 1000);
 
         vm.stopPrank();
 
@@ -104,7 +111,7 @@ contract FarmUnitTest is Test, Farm_Deployer_Base {
     function test_StakePUSD_RevertInvalidLockPeriod() public {
         vm.startPrank(user1);
         pusd.approve(address(farm), 500 * 1e6);
-        vm.expectRevert("Unsupported lock period");
+        vm.expectRevert("Invalid period");
         farm.stakePUSD(500 * 1e6, 7 days);
         vm.stopPrank();
     }
@@ -112,7 +119,7 @@ contract FarmUnitTest is Test, Farm_Deployer_Base {
     function test_StakePUSD_RevertInsufficientBalance() public {
         vm.startPrank(user1);
         pusd.approve(address(farm), INITIAL_BALANCE * 2);
-        vm.expectRevert("Insufficient PUSD balance");
+        vm.expectRevert("Low PUSD");
         farm.stakePUSD(INITIAL_BALANCE * 2, 30 days);
         vm.stopPrank();
     }
@@ -152,7 +159,7 @@ contract FarmUnitTest is Test, Farm_Deployer_Base {
         pusd.approve(address(farm), stakeAmount);
         uint256 tokenId = farm.stakePUSD(stakeAmount, 30 days);
 
-        vm.expectRevert("Still in lock period");
+        vm.expectRevert("Still locked");
         farm.unstakePUSD(tokenId);
         vm.stopPrank();
     }
@@ -168,7 +175,7 @@ contract FarmUnitTest is Test, Farm_Deployer_Base {
         vm.warp(block.timestamp + 31 days);
 
         vm.prank(user2);
-        vm.expectRevert("Not stake owner");
+        vm.expectRevert("Not owner");
         farm.unstakePUSD(tokenId);
     }
 
@@ -199,7 +206,7 @@ contract FarmUnitTest is Test, Farm_Deployer_Base {
         pusd.approve(address(farm), stakeAmount);
         uint256 tokenId = farm.stakePUSD(stakeAmount, 30 days);
 
-        vm.expectRevert("Stake still in lock period");
+        vm.expectRevert("Still locked");
         farm.renewStake(tokenId, false, 90 days);
         vm.stopPrank();
     }
@@ -236,7 +243,7 @@ contract FarmUnitTest is Test, Farm_Deployer_Base {
         vm.warp(block.timestamp + 15 days);
 
         vm.prank(user2);
-        vm.expectRevert("Not stake owner");
+        vm.expectRevert("Not owner");
         farm.claimStakeRewards(tokenId);
     }
 
@@ -262,14 +269,16 @@ contract FarmUnitTest is Test, Farm_Deployer_Base {
         farm.setAPY(3000);
     }
 
-    function test_BatchSetLockPeriodMultipliers() public {
+    function test_BatchSetLockPeriodConfig() public {
         uint256[] memory periods = new uint256[](1);
         uint16[] memory multipliers = new uint16[](1);
+        uint256[] memory caps = new uint256[](1);
         periods[0] = 365 days;
         multipliers[0] = 30000;
+        caps[0] = 0;  // no limit
 
         vm.prank(admin);
-        farm.batchSetLockPeriodMultipliers(periods, multipliers);
+        farm.batchSetLockPeriodConfig(periods, multipliers, caps);
 
         // Verify new period works
         vm.startPrank(user1);
@@ -287,7 +296,7 @@ contract FarmUnitTest is Test, Farm_Deployer_Base {
 
         vm.startPrank(user1);
         pusd.approve(address(farm), 500 * 1e6);
-        vm.expectRevert("Unsupported lock period");
+        vm.expectRevert("Invalid period");
         farm.stakePUSD(500 * 1e6, 180 days);
         vm.stopPrank();
     }
