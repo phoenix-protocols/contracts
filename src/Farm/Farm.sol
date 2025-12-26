@@ -409,56 +409,6 @@ contract FarmUpgradeable is Initializable, AccessControlUpgradeable, ReentrancyG
     }
 
     /**
-     * @notice Claim rewards for all active stakes at once
-     * @dev Batch claim current available rewards for all user's active stake records
-     * @return totalReward Total amount of rewards claimed
-     */
-    function claimAllStakeRewards() external nonReentrant whenNotPaused returns (uint256 totalReward) {
-        uint256[] memory tokenIds = userAssets[msg.sender].tokenIds;
-        require(tokenIds.length > 0, "No stakes");
-
-        NFTManager nftManager = NFTManager(_nftManager);
-        StakeRecord[] memory stakes = new StakeRecord[](tokenIds.length);
-        for (uint256 i = 0; i < tokenIds.length; i++) {
-            StakeRecord memory record = nftManager.getStakeRecord(tokenIds[i]);
-            if (record.active) {
-                stakes[i] = record;
-            }
-        }
-
-        totalReward = 0;
-
-        // Iterate through all stake records to claim rewards
-        for (uint256 i = 0; i < stakes.length; i++) {
-            if (stakes[i].active) {
-                uint256 reward = _calculateStakeReward(stakes[i]) + stakes[i].pendingReward;
-                if (reward > 0) {
-                    // Update last claim time and clear pending reward
-                    stakes[i].lastClaimTime = block.timestamp;
-                    stakes[i].pendingReward = 0;
-                    totalReward += reward;
-                    nftManager.updateStakeRecord(tokenIds[i], stakes[i]);
-
-                    emit StakeRewardsClaimed(msg.sender, tokenIds[i], reward);
-                }
-            }
-        }
-
-        require(totalReward > 0, "No rewards");
-
-        // Distribute PUSD rewards from reserve
-        bool success = _distributeReward(msg.sender, totalReward);
-        require(success, "Low reserve");
-
-        // Update user operation time
-        UserAssetInfo storage userInfo = userAssets[msg.sender];
-        if (userInfo.lastActionTime == 0) {
-            totalUsers++;
-        }
-        userInfo.lastActionTime = block.timestamp;
-    }
-
-    /**
      * @notice Unified stake query function (merged version)
      * @param account User address
      * @param queryType Query type: 0-total rewards, 1-specific ID rewards, 2-allowance amount, 3-stake validation

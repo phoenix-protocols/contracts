@@ -91,8 +91,6 @@ interface IFarm {
 
     function claimStakeRewards(uint256 tokenId) external;
 
-    function claimAllStakeRewards() external returns (uint256 totalReward);
-
     function getStakeInfo(address account, uint256 queryType, uint256 tokenId, uint256 amount) external view returns (uint256 result, string memory reason);
 
     function setAPY(uint256 newAPY) external;

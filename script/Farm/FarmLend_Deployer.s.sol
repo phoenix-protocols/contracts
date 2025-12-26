@@ -26,11 +26,12 @@ contract FarmLend_Deployer is Script, FarmLend_Deployer_Base {
     }
 
     function upgrade() external {
+        uint256 deployerPrivateKey = vm.envUint("PRIVATE_KEY");
         address proxyAddr = vm.envAddress("FARMLEND_PROXY");
 
         bytes memory initData = ""; // If you have reinitializer, you can encode it here
 
-        vm.startBroadcast();
+        vm.startBroadcast(deployerPrivateKey);
         address farmLendAddr = address(_upgradeFarmLend(proxyAddr, initData));
         vm.stopBroadcast();
 

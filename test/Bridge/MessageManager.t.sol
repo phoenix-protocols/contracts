@@ -234,7 +234,7 @@ contract MessageManagerTest is Test {
                 nonce
             )
         );
-        assertTrue(manager.cliamMessageStatus(messageHash));
+        assertTrue(manager.claimMessageStatus(messageHash));
     }
 
     function test_ClaimMessage_EmitsEvent() public {
@@ -300,9 +300,9 @@ contract MessageManagerTest is Test {
         bytes32 hash2 = keccak256(abi.encode(SOURCE_CHAIN_ID, DEST_CHAIN_ID, tokenA, tokenB, user1, user2, FEE, VALUE, 2));
         bytes32 hash3 = keccak256(abi.encode(SOURCE_CHAIN_ID, DEST_CHAIN_ID, tokenA, tokenB, user1, user2, FEE, VALUE, 3));
 
-        assertTrue(manager.cliamMessageStatus(hash1));
-        assertTrue(manager.cliamMessageStatus(hash2));
-        assertTrue(manager.cliamMessageStatus(hash3));
+        assertTrue(manager.claimMessageStatus(hash1));
+        assertTrue(manager.claimMessageStatus(hash2));
+        assertTrue(manager.claimMessageStatus(hash3));
 
         vm.stopPrank();
     }
@@ -375,13 +375,13 @@ contract MessageManagerTest is Test {
         );
 
         assertTrue(manager.sentMessageStatus(messageHash));
-        assertFalse(manager.cliamMessageStatus(messageHash));
+        assertFalse(manager.claimMessageStatus(messageHash));
 
         // 2. Claim message on destination chain (same contract for testing)
         vm.prank(poolManager);
         manager.claimMessage(SOURCE_CHAIN_ID, DEST_CHAIN_ID, tokenA, tokenB, user1, user2, VALUE, FEE, nonce);
 
-        assertTrue(manager.cliamMessageStatus(messageHash));
+        assertTrue(manager.claimMessageStatus(messageHash));
     }
 
     function test_MultipleSendAndClaim() public {
@@ -472,7 +472,7 @@ contract MessageManagerTest is Test {
 
     function test_CliamMessageStatus_NotClaimed() public view {
         bytes32 randomHash = keccak256("random");
-        assertFalse(manager.cliamMessageStatus(randomHash));
+        assertFalse(manager.claimMessageStatus(randomHash));
     }
 
     // ==================== Ownership Tests ====================
@@ -522,7 +522,7 @@ contract MessageManagerTest is Test {
         bytes32 messageHash = keccak256(
             abi.encode(sourceChain, destChain, tokenA, tokenB, user1, user2, fee, value, nonce)
         );
-        assertTrue(manager.cliamMessageStatus(messageHash));
+        assertTrue(manager.claimMessageStatus(messageHash));
     }
 
     function testFuzz_MessageHashUniqueness(uint256 nonce1, uint256 nonce2) public {
