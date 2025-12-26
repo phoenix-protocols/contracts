@@ -266,7 +266,7 @@ contract VaultTest is Test, Vault_Deployer_Base {
         uint256 amount = 100e6;
 
         vm.prank(user);
-        vm.expectRevert("Vault: Caller is not the farm");
+        vm.expectRevert("Vault: Caller is not the farm or farmLend");
         vault.withdrawPUSDTo(user, amount);
 
         vm.warp(block.timestamp + vault.HEALTH_CHECK_TIMEOUT() + 1);
@@ -287,7 +287,7 @@ contract VaultTest is Test, Vault_Deployer_Base {
         uint256 feeAmount = 10e6;
 
         vm.prank(user);
-        vm.expectRevert("Vault: Caller is not the farm");
+        vm.expectRevert("Vault: Caller is not the farm or farmLend");
         vault.addFee(address(usdt), feeAmount);
 
         vm.prank(farm);

@@ -618,12 +618,11 @@ contract FarmUpgradeable is Initializable, AccessControlUpgradeable, ReentrancyG
      * @param user User address
      * @return pusdBalance User PUSD balance
      * @return ypusdBalance User yPUSD balance
-     * @return totalDeposited Total deposited amount
      * @return totalStakedAmount Total staked amount
      * @return totalStakeRewards Total pending rewards
      * @return activeStakeCount Active stake record count
      */
-    function getUserInfo(address user) external view returns (uint256 pusdBalance, uint256 ypusdBalance, uint256 totalDeposited, uint256 totalStakedAmount, uint256 totalStakeRewards, uint256 activeStakeCount) {
+    function getUserInfo(address user) external view returns (uint256 pusdBalance, uint256 ypusdBalance, uint256 totalStakedAmount, uint256 totalStakeRewards, uint256 activeStakeCount) {
         UserAssetInfo storage info = userAssets[user];
 
         uint256[] memory tokenIds = info.tokenIds;
@@ -649,7 +648,6 @@ contract FarmUpgradeable is Initializable, AccessControlUpgradeable, ReentrancyG
         return (
             pusdToken.balanceOf(user), // Query real balance from PUSD contract
             ypusdToken.balanceOf(user), // Query real balance from yPUSD contract
-            pusdToken.balanceOf(user), // Use balanceOf instead of deprecated totalDeposited field
             _totalStakedAmount,
             _totalStakeRewards,
             _activeStakeCount
@@ -732,6 +730,7 @@ contract FarmUpgradeable is Initializable, AccessControlUpgradeable, ReentrancyG
         for (uint256 i = 0; i < resultLength; i++) {
             uint256 stakeIndex = validIndices[offset + i];
             StakeRecord memory record = stakes[stakeIndex];
+            uint256 _unlockTime = record.startTime + record.lockPeriod;
 
             stakeDetails[i] = StakeDetail({
                 tokenId: tokenIds[stakeIndex],
@@ -742,8 +741,8 @@ contract FarmUpgradeable is Initializable, AccessControlUpgradeable, ReentrancyG
                 rewardMultiplier: record.rewardMultiplier,
                 active: record.active,
                 currentReward: record.active ? _calculateStakeReward(record) : 0,
-                unlockTime: record.startTime + record.lockPeriod,
-                isUnlocked: block.timestamp >= record.startTime + record.lockPeriod,
+                unlockTime: _unlockTime,
+                isUnlocked: block.timestamp >= _unlockTime,
                 effectiveAPY: (uint256(currentAPY) * uint256(record.rewardMultiplier)) / 10000
             });
         }

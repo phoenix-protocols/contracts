@@ -282,21 +282,21 @@ contract FarmLendTest is Test, FarmLend_Deployer_Base {
     // ==================== maxBorrowable Tests ====================
 
     function test_MaxBorrowable() public view {
-        // 1000 PUSD collateral, 125% CR, price 1:1
-        // maxBorrow = 1000 / 1.25 = 800 USDT
+        // 1000 PUSD collateral, 130% target CR (not liquidation 125%), price 1:1
+        // maxBorrow = 1000 / 1.30 = 769.23 USDT
         uint256 maxBorrow = farmLend.maxBorrowable(TOKEN_ID_1, address(usdt));
-        assertEq(maxBorrow, 800e6);
+        assertApproxEqAbs(maxBorrow, 769230769, 1); // ~769.23e6
     }
 
     function test_MaxBorrowable_DifferentPrice() public {
         // Set USDT price to 1.1 PUSD (USDT more valuable)
         oracle.setTokenPUSDPrice(address(usdt), 1.1e18);
         
-        // 1000 PUSD collateral, 125% CR, price 1.1
+        // 1000 PUSD collateral, 130% target CR, price 1.1
         // collateralTokens = 1000 / 1.1 = 909.09
-        // maxBorrow = 909.09 / 1.25 = 727.27
+        // maxBorrow = 909.09 / 1.30 = 699.30
         uint256 maxBorrow = farmLend.maxBorrowable(TOKEN_ID_1, address(usdt));
-        assertApproxEqAbs(maxBorrow, 727e6, 1e6);
+        assertApproxEqAbs(maxBorrow, 699300699, 1e6); // ~699.30e6
     }
 
     function test_MaxBorrowable_RevertStalePrice() public {

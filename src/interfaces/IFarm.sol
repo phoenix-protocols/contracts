@@ -6,7 +6,6 @@ interface IFarm {
 
     /* ========== User Asset Information ========== */
     struct UserAssetInfo {
-        uint256 totalDeposited;
         uint256 lastActionTime;
         uint256[] tokenIds;
     }
@@ -97,7 +96,7 @@ interface IFarm {
 
     function getSupportedLockPeriodsWithMultipliers() external view returns (uint256[] memory lockPeriods, uint16[] memory multipliers);
 
-    function getUserInfo(address user) external view returns (uint256 pusdBalance, uint256 ypusdBalance, uint256 totalDeposited, uint256 totalStakedAmount, uint256 totalStakeRewards, uint256 activeStakeCount);
+    function getUserInfo(address user) external view returns (uint256 pusdBalance, uint256 ypusdBalance, uint256 totalStakedAmount, uint256 totalStakeRewards, uint256 activeStakeCount);
 
     function getStakeDetails(address user, uint256 tokenId) external view returns (StakeRecord memory stakeRecord, uint256 pendingReward, uint256 unlockTime, bool isUnlocked, uint256 remainingTime);
 

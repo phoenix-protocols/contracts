@@ -380,7 +380,6 @@ contract FarmUnitTest is Test, Farm_Deployer_Base {
         (
             uint256 pusdBalance,
             ,
-            ,
             uint256 totalStakedAmount,
             ,
             uint256 activeStakeCount
@@ -414,7 +413,7 @@ contract FarmUnitTest is Test, Farm_Deployer_Base {
         assertEq(nftManager.ownerOf(tokenId2), user1);
         assertEq(nftManager.ownerOf(tokenId3), user1);
 
-        (, , , , , uint256 activeStakeCount) = farm.getUserInfo(user1);
+        (, , , , uint256 activeStakeCount) = farm.getUserInfo(user1);
         assertEq(activeStakeCount, 3);
     }
 }

@@ -460,7 +460,6 @@ contract FarmIntegrationTest is Test, Farm_Deployer_Base {
         (
             uint256 pusdBalance,
             ,
-            ,
             uint256 totalStakedAmount,
             ,
             uint256 activeStakeCount
@@ -602,7 +601,7 @@ contract FarmIntegrationTest is Test, Farm_Deployer_Base {
         assertTrue(tokenId1 != tokenId2 && tokenId2 != tokenId3);
 
         // User should have 3 active stakes
-        (, , , , , uint256 activeStakeCount) = farm.getUserInfo(user1);
+        (, , , , uint256 activeStakeCount) = farm.getUserInfo(user1);
         assertEq(activeStakeCount, 3);
     }
 

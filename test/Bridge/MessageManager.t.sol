@@ -273,7 +273,7 @@ contract MessageManagerTest is Test {
         vm.startPrank(poolManager);
         manager.claimMessage(SOURCE_CHAIN_ID, DEST_CHAIN_ID, tokenA, tokenB, user1, user2, VALUE, FEE, nonce);
 
-        vm.expectRevert("Message not found!");
+        vm.expectRevert("Message already claimed!");
         manager.claimMessage(SOURCE_CHAIN_ID, DEST_CHAIN_ID, tokenA, tokenB, user1, user2, VALUE, FEE, nonce);
         vm.stopPrank();
     }
@@ -470,7 +470,7 @@ contract MessageManagerTest is Test {
         assertFalse(manager.sentMessageStatus(randomHash));
     }
 
-    function test_CliamMessageStatus_NotClaimed() public view {
+    function test_ClaimMessageStatus_NotClaimed() public view {
         bytes32 randomHash = keccak256("random");
         assertFalse(manager.claimMessageStatus(randomHash));
     }

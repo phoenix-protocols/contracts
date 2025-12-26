@@ -76,4 +76,9 @@ contract MockVault {
     function releaseNFT(uint256 /*tokenId*/, address /*to*/) external {
         // Mock: In real impl this would transfer NFT back
     }
+
+    /// @notice Mock addFee - for FarmLend fee recording
+    function addFee(address /*token*/, uint256 /*amount*/) external {
+        // Mock: In real impl this would record fees
+    }
 }
