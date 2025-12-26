@@ -93,7 +93,7 @@ contract FarmUpgradeable is Initializable, AccessControlUpgradeable, ReentrancyG
         require(pusdAmount > 0, "Invalid amount");
         require(block.timestamp - referenceTimestamp <= HEALTH_CHECK_TIMEOUT, "Stale oracle");
 
-        require(pusdAmount >= minDepositAmount * (10 ** pusdToken.decimals()), "Amount below min");
+        require(pusdAmount >= minDepositAmount, "Amount below min");
 
         // Calculate fee (explicit uint256 cast to avoid potential optimizer issues)
         uint256 fee = (amount * uint256(depositFeeRate)) / 10000;
@@ -112,10 +112,9 @@ contract FarmUpgradeable is Initializable, AccessControlUpgradeable, ReentrancyG
 
         // Update user information
         UserAssetInfo storage userInfo = userAssets[msg.sender];
-        if (userInfo.totalDeposited == 0) {
+        if (userInfo.lastActionTime == 0) {
             totalUsers++;
         }
-        userInfo.totalDeposited += netPUSD;
         userInfo.lastActionTime = block.timestamp;
 
         // Update statistics
@@ -149,10 +148,8 @@ contract FarmUpgradeable is Initializable, AccessControlUpgradeable, ReentrancyG
 
         UserAssetInfo storage userInfo = userAssets[msg.sender];
 
-        // Calculate withdrawal fee (based on PUSD amount, explicit uint256 cast)
-        uint256 pusdFee = (pusdAmount * uint256(withdrawFeeRate)) / 10000;
-        (uint256 assetFee, uint256 feeReferenceTimestamp) = vault.getPUSDAssetValue(asset, pusdFee);
-        require(block.timestamp - feeReferenceTimestamp <= HEALTH_CHECK_TIMEOUT, "Stale oracle");
+        // Calculate withdrawal fee (based on asset amount, using same price point)
+        uint256 assetFee = (assetAmount * uint256(withdrawFeeRate)) / 10000;
         uint256 netAssetAmount = assetAmount - assetFee;
 
         // Burn user's PUSD
@@ -167,14 +164,10 @@ contract FarmUpgradeable is Initializable, AccessControlUpgradeable, ReentrancyG
         }
 
         // Update user information
-        userInfo.lastActionTime = block.timestamp;
-
-        // Reduce user's total deposited amount (based on total PUSD consumed including fees)
-        if (userInfo.totalDeposited >= pusdAmount) {
-            userInfo.totalDeposited -= pusdAmount;
-        } else {
-            userInfo.totalDeposited = 0; // Prevent underflow
+        if (userInfo.lastActionTime == 0) {
+            totalUsers++;
         }
+        userInfo.lastActionTime = block.timestamp;
 
         // Update statistics
         totalVolumeUSD += pusdAmount;
@@ -190,7 +183,7 @@ contract FarmUpgradeable is Initializable, AccessControlUpgradeable, ReentrancyG
      * @return tokenId Record ID for this stake
      */
     function stakePUSD(uint256 amount, uint256 lockPeriod) external nonReentrant whenNotPaused returns (uint256 tokenId) {
-        require(amount >= minLockAmount * (10 ** pusdToken.decimals()), "Too small");
+        require(amount >= minLockAmount, "Too small");
 
         // Verify if lock period is supported
         require(lockPeriodMultipliers[lockPeriod] > 0, "Invalid period");
@@ -203,9 +196,6 @@ contract FarmUpgradeable is Initializable, AccessControlUpgradeable, ReentrancyG
 
         // Check user PUSD balance
         require(pusdToken.balanceOf(msg.sender) >= amount, "Low PUSD");
-
-        // Check if user has authorized sufficient PUSD to Farm contract
-        require(IERC20(address(pusdToken)).allowance(msg.sender, address(this)) >= amount, "Approve PUSD first");
 
         // Directly transfer PUSD from user address to Vault contract
         IERC20(address(pusdToken)).safeTransferFrom(msg.sender, address(vault), amount);
@@ -225,6 +215,9 @@ contract FarmUpgradeable is Initializable, AccessControlUpgradeable, ReentrancyG
 
         // Update user operation time
         UserAssetInfo storage userInfo = userAssets[msg.sender];
+        if (userInfo.lastActionTime == 0) {
+            totalUsers++;
+        }
         userInfo.lastActionTime = block.timestamp;
         userInfo.tokenIds.push(tokenId);
 
@@ -258,21 +251,30 @@ contract FarmUpgradeable is Initializable, AccessControlUpgradeable, ReentrancyG
     function _executeRenewal(uint256 tokenId, bool compoundRewards, uint256 newLockPeriod) internal {
         NFTManager nftManager = NFTManager(_nftManager);
         StakeRecord memory stakeRecord = nftManager.getStakeRecord(tokenId);
-        // Reset stake record for new lock period
+
+        // Calculate rewards BEFORE updating stake record (uses old startTime/lastClaimTime/lockPeriod)
+        uint256 reward = _calculateStakeReward(stakeRecord);
+        uint256 totalReward = reward + stakeRecord.pendingReward;
+
+        // Save old lock period for poolTVL update
+        uint256 oldLockPeriod = stakeRecord.lockPeriod;
+        uint256 oldAmount = stakeRecord.amount;
+
+        // Reset stake record for new lock period AFTER reward calculation
         stakeRecord.startTime = block.timestamp;
         stakeRecord.lastClaimTime = block.timestamp;
         stakeRecord.lockPeriod = newLockPeriod;
         stakeRecord.rewardMultiplier = lockPeriodMultipliers[newLockPeriod];
-
-        // Calculate rewards for this stake
-        uint256 reward = _calculateStakeReward(stakeRecord);
-        uint256 totalReward = reward + stakeRecord.pendingReward;
 
         if (totalReward > 0) {
             if (compoundRewards) {
                 // Compounding mode: directly add rewards to stake principal (rewards in PUSD units)
                 stakeRecord.amount += totalReward;
                 stakeRecord.pendingReward = 0;
+                
+                // Update totalStaked for compounded rewards
+                totalStaked += totalReward;
+                
                 emit StakeRenewal(msg.sender, tokenId, newLockPeriod, totalReward, stakeRecord.amount, true);
             } else {
                 // Traditional mode: distribute PUSD rewards from reserve
@@ -285,8 +287,25 @@ contract FarmUpgradeable is Initializable, AccessControlUpgradeable, ReentrancyG
             }
         }
 
+        // Update poolTVL if lock period changed or rewards compounded
+        if (oldLockPeriod != newLockPeriod) {
+            // Transfer TVL from old pool to new pool
+            if (poolTVL[oldLockPeriod] >= oldAmount) {
+                poolTVL[oldLockPeriod] -= oldAmount;
+            } else {
+                poolTVL[oldLockPeriod] = 0;
+            }
+            poolTVL[newLockPeriod] += stakeRecord.amount;
+        } else if (compoundRewards && totalReward > 0) {
+            // Same pool but amount increased due to compounding
+            poolTVL[newLockPeriod] += totalReward;
+        }
+
         // Update user operation time
         UserAssetInfo storage userInfo = userAssets[msg.sender];
+        if (userInfo.lastActionTime == 0) {
+            totalUsers++;
+        }
         userInfo.lastActionTime = block.timestamp;
 
         nftManager.updateStakeRecord(tokenId, stakeRecord);
@@ -343,6 +362,9 @@ contract FarmUpgradeable is Initializable, AccessControlUpgradeable, ReentrancyG
 
         // Update user operation time
         UserAssetInfo storage userInfo = userAssets[msg.sender];
+        if (userInfo.lastActionTime == 0) {
+            totalUsers++;
+        }
         userInfo.lastActionTime = block.timestamp;
 
         // Remove tokenId from user's tokenIds array
@@ -358,7 +380,6 @@ contract FarmUpgradeable is Initializable, AccessControlUpgradeable, ReentrancyG
      */
     function claimStakeRewards(uint256 tokenId) external nonReentrant whenNotPaused {
         NFTManager nftManager = NFTManager(_nftManager);
-        require(nftManager.exists(tokenId), "Invaild tokenId");
         require(nftManager.ownerOf(tokenId) == msg.sender, "Not owner");
 
         StakeRecord memory stakeRecord = nftManager.getStakeRecord(tokenId);
@@ -376,6 +397,13 @@ contract FarmUpgradeable is Initializable, AccessControlUpgradeable, ReentrancyG
         // Distribute PUSD rewards from reserve
         bool success = _distributeReward(msg.sender, pendingReward);
         require(success, "Low reserve");
+
+        // Update user operation time
+        UserAssetInfo storage userInfo = userAssets[msg.sender];
+        if (userInfo.lastActionTime == 0) {
+            totalUsers++;
+        }
+        userInfo.lastActionTime = block.timestamp;
 
         emit StakeRewardsClaimed(msg.sender, tokenId, pendingReward);
     }
@@ -405,12 +433,13 @@ contract FarmUpgradeable is Initializable, AccessControlUpgradeable, ReentrancyG
             if (stakes[i].active) {
                 uint256 reward = _calculateStakeReward(stakes[i]) + stakes[i].pendingReward;
                 if (reward > 0) {
-                    // Update last claim time
+                    // Update last claim time and clear pending reward
                     stakes[i].lastClaimTime = block.timestamp;
+                    stakes[i].pendingReward = 0;
                     totalReward += reward;
                     nftManager.updateStakeRecord(tokenIds[i], stakes[i]);
 
-                    emit StakeRewardsClaimed(msg.sender, i, reward);
+                    emit StakeRewardsClaimed(msg.sender, tokenIds[i], reward);
                 }
             }
         }
@@ -420,6 +449,13 @@ contract FarmUpgradeable is Initializable, AccessControlUpgradeable, ReentrancyG
         // Distribute PUSD rewards from reserve
         bool success = _distributeReward(msg.sender, totalReward);
         require(success, "Low reserve");
+
+        // Update user operation time
+        UserAssetInfo storage userInfo = userAssets[msg.sender];
+        if (userInfo.lastActionTime == 0) {
+            totalUsers++;
+        }
+        userInfo.lastActionTime = block.timestamp;
     }
 
     /**
@@ -434,7 +470,7 @@ contract FarmUpgradeable is Initializable, AccessControlUpgradeable, ReentrancyG
     function getStakeInfo(address account, uint256 queryType, uint256 tokenId, uint256 amount) external view returns (uint256 result, string memory reason) {
         if (queryType == 0) {
             // Get total rewards
-            uint256[] memory tokenIds = userAssets[msg.sender].tokenIds;
+            uint256[] memory tokenIds = userAssets[account].tokenIds;
             require(tokenIds.length > 0, "No stakes");
             StakeRecord[] memory stakes = new StakeRecord[](tokenIds.length);
             for (uint256 i = 0; i < tokenIds.length; i++) {
@@ -458,7 +494,7 @@ contract FarmUpgradeable is Initializable, AccessControlUpgradeable, ReentrancyG
             return (IERC20(address(pusdToken)).allowance(account, address(this)), "");
         } else if (queryType == 3) {
             // Validate if staking is possible
-            if (amount < minLockAmount * (10 ** pusdToken.decimals())) {
+            if (amount < minLockAmount) {
                 return (0, "Below min amount");
             }
             if (pusdToken.balanceOf(account) < amount) {
@@ -663,7 +699,7 @@ contract FarmUpgradeable is Initializable, AccessControlUpgradeable, ReentrancyG
         return (
             pusdToken.balanceOf(user), // Query real balance from PUSD contract
             ypusdToken.balanceOf(user), // Query real balance from yPUSD contract
-            info.totalDeposited,
+            pusdToken.balanceOf(user), // Use balanceOf instead of deprecated totalDeposited field
             _totalStakedAmount,
             _totalStakeRewards,
             _activeStakeCount
@@ -862,6 +898,24 @@ contract FarmUpgradeable is Initializable, AccessControlUpgradeable, ReentrancyG
         IFarm.StakeRecord memory record = nftManager.getStakeRecord(tokenId);
         require(record.amount >= pusdAmount, "Low stake");
         uint256 reward = _calculateStakeReward(record);
+
+        // Calculate the difference and update global tracking
+        uint256 amountDiff = record.amount - pusdAmount;
+        if (amountDiff > 0) {
+            // Update totalStaked
+            if (totalStaked >= amountDiff) {
+                totalStaked -= amountDiff;
+            } else {
+                totalStaked = 0;
+            }
+            // Update poolTVL
+            if (poolTVL[record.lockPeriod] >= amountDiff) {
+                poolTVL[record.lockPeriod] -= amountDiff;
+            } else {
+                poolTVL[record.lockPeriod] = 0;
+            }
+        }
+
         // Update last claim time
         record.lastClaimTime = block.timestamp;
         // Update pending reward

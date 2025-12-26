@@ -214,7 +214,7 @@ contract Vault is Initializable, AccessControlUpgradeable, PausableUpgradeable, 
 
     function withdrawPUSDTo(address user, uint256 amount) external nonReentrant whenNotPaused {
         require(block.timestamp - lastHealthCheck < HEALTH_CHECK_TIMEOUT, "Vault: Oracle system offline");
-        require(msg.sender == farm, "Vault: Caller is not the farm");
+        require(msg.sender == farm || msg.sender == farmLend, "Vault: Caller is not the farm or farmLend");
 
         IERC20(pusdToken).safeTransfer(user, amount);
         emit Withdrawn(user, address(pusdToken), amount);
@@ -283,12 +283,12 @@ contract Vault is Initializable, AccessControlUpgradeable, PausableUpgradeable, 
 
     /**
      * @notice Add fee
-     * @dev Called by Farm contract to record transaction fees
+     * @dev Called by Farm or FarmLend contract to record transaction fees
      * @param assetToken Fee assetToken address
      * @param amount Fee amount
      */
     function addFee(address assetToken, uint256 amount) external {
-        require(msg.sender == farm, "Vault: Caller is not the farm");
+        require(msg.sender == farm || msg.sender == farmLend, "Vault: Caller is not the farm or farmLend");
         require(supportedAssets[assetToken] || assetToken == pusdToken, "Vault: Unsupported assetToken");
         require(amount > 0, "Vault: Invalid fee amount");
         accumulatedFees[assetToken] += amount;
@@ -470,21 +470,6 @@ contract Vault is Initializable, AccessControlUpgradeable, PausableUpgradeable, 
         emit NFTWithdrawn(to, tokenId);
     }
 
-    function withdrawNFTByFarm(uint256 tokenId, address to) external {
-        require(msg.sender == farm, "Not From Farm");
-        NFTManager nftManager = NFTManager(_nftManager);
-        require(nftManager.exists(tokenId));
-        require(nftManager.ownerOf(tokenId) == address(this));
-
-        IFarm.StakeRecord memory r = nftManager.getStakeRecord(tokenId);
-        require(r.active, "NFTManager: stake already withdrawn");
-        require(block.timestamp >= r.startTime + r.lockPeriod + MAX_DELAY_PERIOD, "Vault: stake is still locked");
-
-        nftManager.safeTransferFrom(address(this), to, tokenId);
-
-        emit NFTWithdrawn(to, tokenId);
-    }
-
     /**
      * @notice Pause contract
      * @dev Pause all deposit/withdrawal operations in emergency
@@ -530,8 +515,10 @@ contract Vault is Initializable, AccessControlUpgradeable, PausableUpgradeable, 
     function getTVL(address assetToken) external view returns (uint256 tvl, uint256 marketValue) {
         require(supportedAssets[assetToken], "Vault: Unsupported assetToken");
 
-        // Get assetToken balance
-        tvl = IERC20(assetToken).balanceOf(address(this));
+        // Get assetToken balance and subtract accumulated fees
+        uint256 balance = IERC20(assetToken).balanceOf(address(this));
+        uint256 fees = accumulatedFees[assetToken];
+        tvl = balance >= fees ? balance - fees : 0;
 
         // If Oracle is set, calculate real market value
         if (oracleManager != address(0)) {

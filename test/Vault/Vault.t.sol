@@ -521,30 +521,6 @@ contract VaultTest is Test, Vault_Deployer_Base {
         assertEq(nft.ownerOf(tokenId), user);
     }
 
-    function test_WithdrawNFTByFarm_OnlyFarm() public {
-        uint256 tokenId = 4;
-        uint256 lockPeriod = 5 days;
-
-        vm.warp(12345678910);
-
-        _setNFTRecord(tokenId, true, block.timestamp - 100 days, lockPeriod);
-
-        vm.prank(user);
-        vm.expectRevert("Not From Farm");
-        vault.withdrawNFTByFarm(tokenId, user);
-
-        // Use current timestamp as startTime to ensure it's not expired yet
-        _setNFTRecord(tokenId, true, block.timestamp, lockPeriod);
-        vm.prank(farm);
-        vm.expectRevert("Vault: stake is still locked");
-        vault.withdrawNFTByFarm(tokenId, user);
-
-        vm.warp(block.timestamp + lockPeriod + vault.MAX_DELAY_PERIOD() + 1);
-        vm.prank(farm);
-        vault.withdrawNFTByFarm(tokenId, user);
-        assertEq(nft.ownerOf(tokenId), user);
-    }
-
     // ---------- pause / unpause ----------
 
     function test_Pause_Unpause() public {

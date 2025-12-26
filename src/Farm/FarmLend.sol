@@ -154,10 +154,12 @@ contract FarmLend is Initializable, AccessControlUpgradeable, ReentrancyGuardUpg
         //    collateralTokens_18 = collateralPUSD_18 / tokenPrice
         uint256 collateralTokens_18 = (collateralPUSD_18 * 1e18) / tokenPrice;
 
-        // 4. Apply liquidation ratio (bps, explicit uint256 cast for consistency)
+        // 4. Apply target collateral ratio (bps, explicit uint256 cast for consistency)
+        //    Use targetCollateralRatio instead of liquidationRatio to give users buffer room
+        //    Liquidation is triggered when debt grows (via interest/penalty) to breach liquidationRatio
         //
-        //    maxBorrow_18 = collateralTokens_18 * 10000 / liquidationRatio
-        uint256 maxBorrow_18 = (collateralTokens_18 * 10000) / uint256(liquidationRatio);
+        //    maxBorrow_18 = collateralTokens_18 * 10000 / targetCollateralRatio
+        uint256 maxBorrow_18 = (collateralTokens_18 * 10000) / uint256(targetCollateralRatio);
 
         // 5. Convert from 1e18 decimals → debt token decimals
         uint8 debtDecimals = IERC20Metadata(debtToken).decimals();
@@ -381,11 +383,12 @@ contract FarmLend is Initializable, AccessControlUpgradeable, ReentrancyGuardUpg
         }
 
         uint256 overdueSeconds = block.timestamp - from;
-        uint256 overdueDays = (overdueSeconds + 1 days - 1) / 1 days;
 
         uint256 base = loan.borrowedAmount;
 
-        uint256 delta = (base * penaltyRatio * overdueDays) / 10000;
+        // penalty = principal * (penaltyRatio/10000) * (seconds / 1 day)
+        // e.g., penaltyRatio=50 means 0.5% per day, calculated per second
+        uint256 delta = (base * penaltyRatio * overdueSeconds) / (10000 * 1 days);
 
         return penalty + delta;
     }
@@ -497,54 +500,51 @@ contract FarmLend is Initializable, AccessControlUpgradeable, ReentrancyGuardUpg
         // Transfer tokens via Vault (user only needs to approve Vault)
         vault.depositFor(msg.sender, debtToken, amount);
 
-        // Repay prior: Penalty -> Interest -> Principal
+        // Repay priority: Penalty -> Interest -> Principal
+        // Track actual fees paid for protocol revenue
         uint256 remaining = amount;
+        uint256 penaltyPaid = 0;
+        uint256 interestPaid = 0;
 
         // 1. Repay Penalty
-        if (penalty > 0) {
-            if (remaining <= penalty) {
-                // repay partial penalty
-                loan.accruedPenalty -= remaining;
-                emit Repay(msg.sender, tokenId, debtToken, 0, 0, remaining, block.timestamp);
-                return;
-            } else {
-                // repay full penalty
-                remaining -= penalty;
-                loan.accruedPenalty = 0;
-            }
+        if (remaining > 0 && penalty > 0) {
+            penaltyPaid = remaining >= penalty ? penalty : remaining;
+            loan.accruedPenalty -= penaltyPaid;
+            remaining -= penaltyPaid;
         }
 
         // 2. Repay Interest
-        if (interest > 0) {
-            if (remaining <= interest) {
-                // repay partial interest
-                loan.accruedInterest -= remaining;
-                emit Repay(msg.sender, tokenId, debtToken, 0, remaining, penalty, block.timestamp);
-                return;
-            } else {
-                // repay full interest
-                remaining -= interest;
-                loan.accruedInterest = 0;
-            }
+        if (remaining > 0 && interest > 0) {
+            interestPaid = remaining >= interest ? interest : remaining;
+            loan.accruedInterest -= interestPaid;
+            remaining -= interestPaid;
         }
 
         // 3. Repay Principal
-        if (remaining < principal) {
-            loan.borrowedAmount -= remaining;
-            emit Repay(msg.sender, tokenId, debtToken, remaining, interest, penalty, block.timestamp);
-            return;
+        if (remaining > 0 && principal > 0) {
+            uint256 principalPaid = remaining >= principal ? principal : remaining;
+            loan.borrowedAmount -= principalPaid;
         }
 
-        // Full repayment and release NFT to borrower
-        loan.borrowedAmount = 0;
-        loan.active = false;
-        vault.releaseNFT(tokenId, loan.borrower);
+        // Record interest and penalty as protocol fees (for both partial and full repayment)
+        uint256 totalFees = interestPaid + penaltyPaid;
+        if (totalFees > 0) {
+            vault.addFee(debtToken, totalFees);
+        }
 
-        // Remove borrower's nft tokenId
-        bool success = _removeTokenIdFromDebt(loan.borrower, tokenId);
-        require(success, "FarmLend: tokenId of borrower not found");
+        // Check if fully repaid
+        if (loan.borrowedAmount == 0 && loan.accruedInterest == 0 && loan.accruedPenalty == 0) {
+            loan.active = false;
+            vault.releaseNFT(tokenId, loan.borrower);
 
-        emit FullyRepaid(msg.sender, tokenId, debtToken, amount, block.timestamp);
+            // Remove borrower's nft tokenId
+            bool success = _removeTokenIdFromDebt(loan.borrower, tokenId);
+            require(success, "FarmLend: tokenId of borrower not found");
+
+            emit FullyRepaid(msg.sender, tokenId, debtToken, amount, block.timestamp);
+        } else {
+            emit Repay(msg.sender, tokenId, debtToken, amount - interestPaid - penaltyPaid, interestPaid, penaltyPaid, block.timestamp);
+        }
     }
 
     /// @notice Remove tokenId from borrower's debt list
@@ -608,11 +608,12 @@ contract FarmLend is Initializable, AccessControlUpgradeable, ReentrancyGuardUpg
         }
 
         uint256 overdueSeconds = block.timestamp - from;
-        uint256 overdueDays = (overdueSeconds + 1 days - 1) / 1 days;
 
         uint256 base = loan.borrowedAmount; // principal
 
-        uint256 delta = (base * penaltyRatio * overdueDays) / 10000;
+        // penalty = principal * (penaltyRatio/10000) * (seconds / 1 day)
+        // e.g., penaltyRatio=50 means 0.5% per day, calculated per second
+        uint256 delta = (base * penaltyRatio * overdueSeconds) / (10000 * 1 days);
 
         loan.accruedPenalty += delta;
         loan.lastPenaltyAccrualTime = block.timestamp;
@@ -745,17 +746,19 @@ contract FarmLend is Initializable, AccessControlUpgradeable, ReentrancyGuardUpg
         //     Priority: penalty first, then interest, then principal
         //------------------------------------------------------------
         uint256 remaining = x;
+        uint256 penaltyPaid = 0;
+        uint256 interestPaid = 0;
 
         // Pay off penalty first
         if (remaining > 0 && penalty > 0) {
-            uint256 penaltyPaid = remaining >= penalty ? penalty : remaining;
+            penaltyPaid = remaining >= penalty ? penalty : remaining;
             loan.accruedPenalty -= penaltyPaid;
             remaining -= penaltyPaid;
         }
 
         // Then pay off interest
         if (remaining > 0 && interest > 0) {
-            uint256 interestPaid = remaining >= interest ? interest : remaining;
+            interestPaid = remaining >= interest ? interest : remaining;
             loan.accruedInterest -= interestPaid;
             remaining -= interestPaid;
         }
@@ -763,6 +766,12 @@ contract FarmLend is Initializable, AccessControlUpgradeable, ReentrancyGuardUpg
         // Finally pay off principal
         if (remaining > 0) {
             loan.borrowedAmount -= remaining;
+        }
+
+        // Record interest and penalty as protocol fees
+        uint256 totalFees = interestPaid + penaltyPaid;
+        if (totalFees > 0) {
+            vault.addFee(loan.debtToken, totalFees);
         }
 
         // 12. Update collateral

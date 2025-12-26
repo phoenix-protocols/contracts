@@ -102,9 +102,9 @@ contract MessageManager is
             )
         );
 
-        // Ensure the message wont't be claimed again
-        require(!cliamMessageStatus[messageHash], "Message not found!");
-        cliamMessageStatus[messageHash] = true;
+        // Ensure the message won't be claimed again
+        require(!claimMessageStatus[messageHash], "Message already claimed!");
+        claimMessageStatus[messageHash] = true;
         emit MessageClaimed(
             sourceChainId,
             destChainId,

@@ -88,7 +88,7 @@ contract PUSDOracleUpgradeable is Initializable, AccessControlUpgradeable, Pausa
         require(block.timestamp - updatedAt <= maxPriceAge, "Price data too old");
         require(block.timestamp - timestamp <= maxPriceAge, "PUSD price too old");
 
-        tokens[token] = TokenConfig({usdFeed: usdFeed, pusdOracle: pusdOracle, tokenPusdPrice: pusdPrice, lastUpdated: block.timestamp});
+        tokens[token] = TokenConfig({usdFeed: usdFeed, pusdOracle: pusdOracle, tokenPusdPrice: pusdPrice, lastUpdated: timestamp});
 
         supportedTokens.push(token);
 
@@ -125,7 +125,7 @@ contract PUSDOracleUpgradeable is Initializable, AccessControlUpgradeable, Pausa
         supportedDexOnlyTokens[token] = DexOnlyTokenConfig({
             pusdOracle: pusdOracle,
             tokenPusdPrice: price,
-            lastUpdated: block.timestamp
+            lastUpdated: timestamp
         });
 
         supportedDexOnlyTokenList.push(token);
@@ -149,7 +149,7 @@ contract PUSDOracleUpgradeable is Initializable, AccessControlUpgradeable, Pausa
 
         uint256 oldPrice = config.tokenPusdPrice;
         config.tokenPusdPrice = price;
-        config.lastUpdated = block.timestamp;
+        config.lastUpdated = timestamp;
 
         emit DexOnlyTokenPriceUpdated(token, price, oldPrice);
     }
@@ -167,7 +167,7 @@ contract PUSDOracleUpgradeable is Initializable, AccessControlUpgradeable, Pausa
                 if (price > 0 && block.timestamp >= timestamp && block.timestamp - timestamp <= maxPriceAge) {
                     uint256 oldPrice = config.tokenPusdPrice;
                     config.tokenPusdPrice = price;
-                    config.lastUpdated = block.timestamp;
+                    config.lastUpdated = timestamp;
                     emit DexOnlyTokenPriceUpdated(tokenList[i], price, oldPrice);
                 }
             }
@@ -195,7 +195,7 @@ contract PUSDOracleUpgradeable is Initializable, AccessControlUpgradeable, Pausa
 
         uint256 oldPrice = config.tokenPusdPrice;
         config.tokenPusdPrice = tokenPusdPrice;
-        config.lastUpdated = block.timestamp;
+        config.lastUpdated = timestamp;
 
         // Recalculate PUSD/USD global price
         _updatePUSDUSDPrice();
@@ -226,7 +226,7 @@ contract PUSDOracleUpgradeable is Initializable, AccessControlUpgradeable, Pausa
                 require(block.timestamp - timestamp <= maxPriceAge, "PUSD price too old");
                 uint256 oldPrice = config.tokenPusdPrice;
                 config.tokenPusdPrice = tokenPusdPrice;
-                config.lastUpdated = block.timestamp;
+                config.lastUpdated = timestamp;
 
                 emit TokenPUSDPriceUpdated(tokenList[i], tokenPusdPrice, oldPrice);
             }
@@ -456,11 +456,14 @@ contract PUSDOracleUpgradeable is Initializable, AccessControlUpgradeable, Pausa
     /**
      * @notice Internal depeg check function
      * @dev Automatically called after price updates, no permission check needed
+     *      If no valid price, skip check AND heartbeat - let Vault enter "Oracle offline" protection
+     *      In bootstrap mode, use sendHeartbeat() directly instead of relying on this function
      */
     function _checkDepegInternal() internal {
-        // Check if there's valid PUSD price
+        // Require valid PUSD price
+        // If no valid price, don't send heartbeat - let Vault enter "Oracle offline" protection
         if (pusdUsdPrice == 0 || block.timestamp - pusdPriceUpdated > maxPriceAge) {
-            return; // No valid price, skip check
+            return;
         }
 
         // Calculate deviation from $1.00
