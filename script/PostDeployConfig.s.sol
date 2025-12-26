@@ -36,6 +36,7 @@ contract PostDeployConfig is Script {
     // Role addresses
     address public relayer;
     address public keeper;
+    address public operator;
     
     function run() external {
         // Load deployed addresses
@@ -49,6 +50,7 @@ contract PostDeployConfig is Script {
         // Load role addresses
         relayer = vm.envOr("RELAYER", address(0));
         keeper = vm.envOr("KEEPER", address(0));
+        operator = vm.envOr("OPERATOR", address(0));
         
         string memory configType = vm.envOr("CONFIG_TYPE", string("main"));
         
@@ -250,32 +252,40 @@ contract PostDeployConfig is Script {
         uint256[] memory lockPeriods = new uint256[](4);
         uint16[] memory multipliers = new uint16[](4);
         
-        // 7 days - 1.0x
+        // Read from .env with defaults
+        uint16 mult7d = uint16(vm.envOr("LOCK_7D_MULT", uint256(10000)));
+        uint16 mult31d = uint16(vm.envOr("LOCK_31D_MULT", uint256(12000)));
+        uint16 mult89d = uint16(vm.envOr("LOCK_89D_MULT", uint256(15000)));
+        uint16 mult181d = uint16(vm.envOr("LOCK_181D_MULT", uint256(20000)));
+        
+        // 7 days
         lockPeriods[0] = 7 days;
-        multipliers[0] = 10000;
+        multipliers[0] = mult7d;
         
-        // 30 days - 1.2x
+        // 31 days
         lockPeriods[1] = 31 days;
-        multipliers[1] = 12000;
+        multipliers[1] = mult31d;
         
-        // 90 days - 1.5x
+        // 89 days
         lockPeriods[2] = 89 days;
-        multipliers[2] = 15000;
+        multipliers[2] = mult89d;
         
-        // 365 days - 2.0x
+        // 181 days
         lockPeriods[3] = 181 days;
-        multipliers[3] = 20000;
-
-        // Pool caps (0 = no limit)
+        multipliers[3] = mult181d;
+        // Pool caps from .env (0 = no limit)
         uint256[] memory caps = new uint256[](4);
-        caps[0] = 0;  // 7d - no limit
-        caps[1] = 0;  // 31d - no limit
-        caps[2] = 0;  // 89d - no limit
-        caps[3] = 0;  // 181d - no limit
+        caps[0] = vm.envOr("LOCK_7D_CAP", uint256(0));
+        caps[1] = vm.envOr("LOCK_31D_CAP", uint256(0));
+        caps[2] = vm.envOr("LOCK_89D_CAP", uint256(0));
+        caps[3] = vm.envOr("LOCK_181D_CAP", uint256(0));
         
         farmContract.batchSetLockPeriodConfig(lockPeriods, multipliers, caps);
         
-        console.log("  7d=1.0x, 31d=1.2x, 89d=1.5x, 181d=2.0x");
+        console.log("  7d:", mult7d, "x, cap:", caps[0]);
+        console.log("  31d:", mult31d, "x, cap:", caps[1]);
+        console.log("  89d:", mult89d, "x, cap:", caps[2]);
+        console.log("  181d:", mult181d, "x, cap:", caps[3]);
     }
     
     // ════════════════════════════════════════════════════════════════════════
@@ -513,15 +523,15 @@ contract PostDeployConfig is Script {
             console.log("  Oracle.PRICE_UPDATER_ROLE already granted to relayer");
         }
         
-        // 3. ReferralManager: Grant REWARD_MANAGER_ROLE to Farm
+        // 3. ReferralManager: Grant REWARD_MANAGER_ROLE to Relayer
         if (referralManager != address(0)) {
             ReferralRewardManager refContract = ReferralRewardManager(referralManager);
             bytes32 rewardManagerRole = keccak256("REWARD_MANAGER_ROLE");
-            if (!refContract.hasRole(rewardManagerRole, farm)) {
-                refContract.grantRole(rewardManagerRole, farm);
-                console.log("  ReferralManager.REWARD_MANAGER_ROLE granted to Farm:", farm);
+            if (!refContract.hasRole(rewardManagerRole, relayer)) {
+                refContract.grantRole(rewardManagerRole, relayer);
+                console.log("  ReferralManager.REWARD_MANAGER_ROLE granted to relayer:", relayer);
             } else {
-                console.log("  ReferralManager.REWARD_MANAGER_ROLE already granted to Farm");
+                console.log("  ReferralManager.REWARD_MANAGER_ROLE already granted to relayer");
             }
         }
         
@@ -548,6 +558,19 @@ contract PostDeployConfig is Script {
             console.log("  Vault.PAUSER_ROLE granted to Oracle:", oracle);
         } else {
             console.log("  Vault.PAUSER_ROLE already granted to Oracle");
+        }
+        
+        // 6. Farm: Grant OPERATOR_ROLE to operator (for APY/fees/configuration)
+        if (operator != address(0)) {
+            bytes32 operatorRole = keccak256("OPERATOR_ROLE");
+            if (!farmContract.hasRole(operatorRole, operator)) {
+                farmContract.grantRole(operatorRole, operator);
+                console.log("  Farm.OPERATOR_ROLE granted to operator:", operator);
+            } else {
+                console.log("  Farm.OPERATOR_ROLE already granted to operator");
+            }
+        } else {
+            console.log("  WARNING: OPERATOR not set, skipping OPERATOR_ROLE");
         }
     }
 }
