@@ -387,13 +387,19 @@ contract PostDeployConfig is Script {
         console.log("  Target CR:", targetCR, "bps");
         
         // 3. Set loan duration interest ratios (optional - defaults set in initialize)
-        // Defaults: 30 days = 1.1%, 60 days = 2%
-        uint256 interest30d = vm.envOr("FARMLEND_INTEREST_30D", uint256(110));
-        uint256 interest60d = vm.envOr("FARMLEND_INTEREST_60D", uint256(200));
-        farmLendContract.setLoanDurationInterestRatios(30 days, interest30d);
-        farmLendContract.setLoanDurationInterestRatios(60 days, interest60d);
-        console.log("  Interest 30d:", interest30d, "bps");
-        console.log("  Interest 60d:", interest60d, "bps");
+        // Loan periods: 7, 31, 89, 181 days
+        uint256 interest7d = vm.envOr("FARMLEND_INTEREST_7D", uint256(30));    // 0.3%
+        uint256 interest31d = vm.envOr("FARMLEND_INTEREST_31D", uint256(110));  // 1.1%
+        uint256 interest89d = vm.envOr("FARMLEND_INTEREST_89D", uint256(250));  // 2.5%
+        uint256 interest181d = vm.envOr("FARMLEND_INTEREST_181D", uint256(450)); // 4.5%
+        farmLendContract.setLoanDurationInterestRatios(7 days, interest7d);
+        farmLendContract.setLoanDurationInterestRatios(31 days, interest31d);
+        farmLendContract.setLoanDurationInterestRatios(89 days, interest89d);
+        farmLendContract.setLoanDurationInterestRatios(181 days, interest181d);
+        console.log("  Interest 7d:", interest7d, "bps");
+        console.log("  Interest 31d:", interest31d, "bps");
+        console.log("  Interest 89d:", interest89d, "bps");
+        console.log("  Interest 181d:", interest181d, "bps");
         
         // 4. Set PUSD Oracle (CRITICAL - needed for price feeds)
         if (oracle != address(0)) {

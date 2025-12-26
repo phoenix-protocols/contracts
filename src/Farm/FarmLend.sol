@@ -789,9 +789,21 @@ contract FarmLend is Initializable, AccessControlUpgradeable, ReentrancyGuardUpg
         vault.withdrawPUSDTo(msg.sender, rewardPUSD);
 
         //------------------------------------------------------------
-        // 16. Emit event
+        // 16. Emit event with detailed liquidation info
         //------------------------------------------------------------
-        emit Liquidated(tokenId, loan.borrower, msg.sender, loan.debtToken, x, block.timestamp);
+        emit Liquidated(
+            tokenId,
+            loan.borrower,
+            msg.sender,
+            loan.debtToken,
+            x,                              // Total repaid amount in debt token (e.g. USDT/USDC, token decimals)
+            remaining,                      // Principal repaid in debt token (token decimals)
+            interestPaid,                   // Interest repaid in debt token (token decimals)
+            penaltyPaid,                    // Penalty repaid in debt token (token decimals)
+            rewardPUSD,                     // PUSD reward sent to liquidator (PUSD, 6 decimals)
+            loan.remainingCollateralAmount, // Remaining collateral in PUSD (6 decimals)
+            block.timestamp
+        );
     }
 
     /// @notice Claim remaining collateral after loan is fully liquidated (debt = 0)

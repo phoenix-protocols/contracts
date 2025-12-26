@@ -28,7 +28,19 @@ interface IFarmLend {
     event LiquidationRatioUpdated(uint16 oldValue, uint16 newValue);
     event TargetCollateralRatioUpdated(uint16 oldValue, uint16 newValue);
     event PUSDOracleUpdated(address oldOracle, address newOracle);
-    event Liquidated(uint256 indexed tokenId, address indexed borrower, address liquidator, address indexed debtToken, uint256 repaidAmount, uint256 timestamp);
+    event Liquidated(
+        uint256 indexed tokenId,
+        address indexed borrower,
+        address liquidator,
+        address indexed debtToken,
+        uint256 repaidAmount,          // Total debt repaid in debt token (e.g. USDT/USDC, token decimals)
+        uint256 repaidPrincipal,        // Principal portion repaid in debt token (token decimals)
+        uint256 repaidInterest,         // Interest portion repaid in debt token (token decimals)
+        uint256 repaidPenalty,          // Penalty portion repaid in debt token (token decimals)
+        uint256 rewardPUSD,             // PUSD reward sent to liquidator (PUSD, 6 decimals)
+        uint256 remainingCollateral,    // Remaining collateral in PUSD (6 decimals)
+        uint256 timestamp
+    );
     event CollateralClaimed(uint256 indexed tokenId, address indexed borrower, uint256 remainingCollateral);
 
     // -------- View functions --------
