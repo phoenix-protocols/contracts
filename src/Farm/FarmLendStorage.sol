@@ -6,6 +6,9 @@ import "../interfaces/IPUSDOracle.sol";
 import "../interfaces/IFarmLend.sol";
 
 abstract contract FarmLendStorage is IFarmLend {
+    /// @notice Operations admin role (configuration management)
+    bytes32 public constant OPERATOR_ROLE = keccak256("OPERATOR_ROLE");
+
     /// @notice NFT Manager contract which holds stake records
     NFTManager public nftManager;
 

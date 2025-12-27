@@ -29,6 +29,7 @@ contract FarmLend is Initializable, AccessControlUpgradeable, ReentrancyGuardUpg
         __UUPSUpgradeable_init();
         
         _grantRole(DEFAULT_ADMIN_ROLE, admin);
+        _grantRole(OPERATOR_ROLE, admin); // Grant operations management permissions (configuration)
 
         require(_nftManager != address(0), "FarmLend: zero NFTManager address");
         require(_lendingVault != address(0), "FarmLend: zero vault address");
@@ -54,13 +55,13 @@ contract FarmLend is Initializable, AccessControlUpgradeable, ReentrancyGuardUpg
     // ---------- Admin configuration ----------
 
     /// @notice Configure which tokens can be used as debt assets
-    function setAllowedDebtToken(address token, bool allowed) external onlyRole(DEFAULT_ADMIN_ROLE) {
+    function setAllowedDebtToken(address token, bool allowed) external onlyRole(OPERATOR_ROLE) {
         allowedDebtTokens[token] = allowed;
         emit DebtTokenAllowed(token, allowed);
     }
 
     /// @notice Update PUSD Oracle address
-    function setPUSDOracle(address newPUSDOracle) external onlyRole(DEFAULT_ADMIN_ROLE) {
+    function setPUSDOracle(address newPUSDOracle) external onlyRole(OPERATOR_ROLE) {
         require(newPUSDOracle != address(0), "FarmLend: zero PUSD Oracle address");
         IPUSDOracle old = pusdOracle;
         pusdOracle = IPUSDOracle(newPUSDOracle);
@@ -68,7 +69,7 @@ contract FarmLend is Initializable, AccessControlUpgradeable, ReentrancyGuardUpg
     }
 
     /// @notice Update liquidation collateral ratio (e.g. 12500 = 125%)
-    function setLiquidationRatio(uint16 newLiquidationRatio) external onlyRole(DEFAULT_ADMIN_ROLE) {
+    function setLiquidationRatio(uint16 newLiquidationRatio) external onlyRole(OPERATOR_ROLE) {
         require(newLiquidationRatio >= 10000, "FarmLend: CR below 100%");
         require(newLiquidationRatio < targetCollateralRatio, "FarmLend: must be < targetCollateralRatio");
 
@@ -79,7 +80,7 @@ contract FarmLend is Initializable, AccessControlUpgradeable, ReentrancyGuardUpg
     }
 
     /// @notice Update target healthy collateral ratio (e.g. 13000 = 130%)
-    function setTargetCollateralRatio(uint16 newTargetCollateralRatio) external onlyRole(DEFAULT_ADMIN_ROLE) {
+    function setTargetCollateralRatio(uint16 newTargetCollateralRatio) external onlyRole(OPERATOR_ROLE) {
         require(newTargetCollateralRatio >= liquidationRatio, "FarmLend: must be >= liquidationRatio");
         require(newTargetCollateralRatio >= 10000, "FarmLend: CR below 100%");
 
@@ -90,7 +91,7 @@ contract FarmLend is Initializable, AccessControlUpgradeable, ReentrancyGuardUpg
     }
 
     /// @notice Update both CR parameters in a single call (recommended)
-    function setCollateralRatios(uint16 newLiquidationRatio, uint16 newTargetCollateralRatio) external onlyRole(DEFAULT_ADMIN_ROLE) {
+    function setCollateralRatios(uint16 newLiquidationRatio, uint16 newTargetCollateralRatio) external onlyRole(OPERATOR_ROLE) {
         require(newLiquidationRatio >= 10000, "FarmLend: liquidationRatio < 100%");
         require(newTargetCollateralRatio >= 10000, "FarmLend: targetCollateralRatio < 100%");
         require(newLiquidationRatio < newTargetCollateralRatio, "FarmLend: liquidation < target");
@@ -106,28 +107,28 @@ contract FarmLend is Initializable, AccessControlUpgradeable, ReentrancyGuardUpg
     }
 
     /// @notice Update penalty ratio in basis points (e.g. 100 = 1%)
-    function setPenaltyRatio(uint256 _penaltyRatio) external onlyRole(DEFAULT_ADMIN_ROLE) {
+    function setPenaltyRatio(uint256 _penaltyRatio) external onlyRole(OPERATOR_ROLE) {
         penaltyRatio = _penaltyRatio;
     }
 
     /// @notice Set interest ratios for loan durations to make loan durations valid
-    function setLoanDurationInterestRatios(uint256 loanDuration, uint256 _loanDurationInterestRatios) external onlyRole(DEFAULT_ADMIN_ROLE) {
+    function setLoanDurationInterestRatios(uint256 loanDuration, uint256 _loanDurationInterestRatios) external onlyRole(OPERATOR_ROLE) {
         loanDurationInterestRatios[loanDuration] = _loanDurationInterestRatios;
     }
 
     /// @notice Update loan grace period in seconds
-    function setLoanGracePeriod(uint256 _loanGracePeriod) external onlyRole(DEFAULT_ADMIN_ROLE) {
+    function setLoanGracePeriod(uint256 _loanGracePeriod) external onlyRole(OPERATOR_ROLE) {
         loanGracePeriod = _loanGracePeriod;
     }
 
     /// @notice Update penalty grace period in seconds
-    function setPenaltyGracePeriod(uint256 _penaltyGracePeriod) external onlyRole(DEFAULT_ADMIN_ROLE) {
+    function setPenaltyGracePeriod(uint256 _penaltyGracePeriod) external onlyRole(OPERATOR_ROLE) {
         require(_penaltyGracePeriod <= loanGracePeriod, "FarmLend: penalty grace > loan grace");
         penaltyGracePeriod = _penaltyGracePeriod;
     }
 
     /// @notice Update liquidation bonus in basis points (e.g. 300 = 3%)
-    function setLiquidationBonus(uint16 _liquidationBonus) external onlyRole(DEFAULT_ADMIN_ROLE) {
+    function setLiquidationBonus(uint16 _liquidationBonus) external onlyRole(OPERATOR_ROLE) {
         require(_liquidationBonus <= 1000, "FarmLend: bonus too high"); // max 10%
         liquidationBonus = _liquidationBonus;
     }
@@ -619,8 +620,8 @@ contract FarmLend is Initializable, AccessControlUpgradeable, ReentrancyGuardUpg
         loan.lastPenaltyAccrualTime = block.timestamp;
     }
 
-    /// @notice Admin seize NFT after loan is overdue beyond grace period
-    function seizeOverdueNFT(uint256 tokenId) external onlyRole(DEFAULT_ADMIN_ROLE) {
+    /// @notice Operator seize NFT after loan is overdue beyond grace period
+    function seizeOverdueNFT(uint256 tokenId) external onlyRole(OPERATOR_ROLE) {
         Loan storage loan = loans[tokenId];
         require(loan.active, "FarmLend: no active loan");
         require(block.timestamp > loan.endTime + loanGracePeriod, "FarmLend: not overdue enough");
