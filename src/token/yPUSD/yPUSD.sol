@@ -11,16 +11,21 @@ import {yPUSDStorage} from "./yPUSDStorage.sol";
 
 /**
  * @title yPUSD - Yield-bearing PUSD Vault
- * @notice ERC-4626 tokenized vault for PUSD with yield accrual
+ * @notice ERC-4626 tokenized vault for PUSD with linear yield release
  * @dev Users deposit PUSD to receive yPUSD shares. 
- *      Yield is injected via accrueYield(), increasing the exchange rate.
+ *      Yield is injected via accrueYield() and released linearly over time.
  *      
  * Key features:
  * - ERC-4626 compliant: deposit/withdraw/redeem
- * - Yield injection: authorized roles can inject yield to increase share value
+ * - Linear yield release: prevents flash loan attacks
  * - Cap limit: maximum total supply of shares
  * - Pausable: admin can pause deposits/withdrawals
  * - Upgradeable: UUPS pattern
+ *
+ * Anti-Flash Loan Design:
+ *   When yield is injected, it's released linearly over the specified duration.
+ *   This prevents attackers from depositing right before yield injection
+ *   and withdrawing immediately after to capture disproportionate yield.
  */
 contract yPUSD is 
     Initializable, 
@@ -121,28 +126,152 @@ contract yPUSD is
         super._withdraw(caller, receiver, owner, assets, shares);
     }
 
+    /* ========== Total Assets Override ========== */
+
+    /**
+     * @notice Returns the total assets available to shareholders
+     * @dev Only counts released yield, not unvested yield
+     * @return Total assets including base deposits + released yield
+     */
+    function totalAssets() public view virtual override returns (uint256) {
+        // Start with actual PUSD balance
+        uint256 actualBalance = IERC20(asset()).balanceOf(address(this));
+        
+        // Subtract unvested yield
+        uint256 unvested = _getUnvestedYield();
+        
+        // Protection against underflow (shouldn't happen in normal operation)
+        if (unvested >= actualBalance) {
+            return 0;
+        }
+        
+        return actualBalance - unvested;
+    }
+
+    /**
+     * @notice Get the amount of yield that hasn't been released yet
+     * @dev Uses time-based proportion to avoid precision loss from rate calculation
+     * @return Amount of unvested yield
+     */
+    function _getUnvestedYield() internal view returns (uint256) {
+        // No active vesting or vesting completed
+        if (vestingEndTime == 0 || block.timestamp >= vestingEndTime) {
+            return 0;
+        }
+        
+        // Calculate remaining time as proportion of total vesting period
+        // unvestedYield stores the total yield for current vesting period
+        // We calculate: unvested = totalYield * remainingTime / totalTime
+        uint256 remainingTime = vestingEndTime - block.timestamp;
+        uint256 totalTime = vestingEndTime - lastVestingUpdate;
+        
+        // Prevent division by zero (shouldn't happen in normal operation)
+        if (totalTime == 0) {
+            return 0;
+        }
+        
+        // Use proportion to avoid precision loss
+        return (unvestedYield * remainingTime) / totalTime;
+    }
+
     /* ========== Yield Injection ========== */
 
     /**
-     * @notice Inject yield into the vault, increasing the exchange rate
+     * @notice Inject yield into the vault with linear release
      * @dev Only callable by YIELD_INJECTOR_ROLE
+     *      Yield is released linearly over the specified duration to prevent flash loan attacks.
+     *      If called while previous yield is still vesting, remaining unvested yield is added
+     *      to the new yield and a new vesting schedule is created.
+     *      
+     *      Precision: Uses time-proportion calculation instead of rate-based to avoid
+     *      precision loss from integer division. The unvestedYield stores the total
+     *      yield amount, and actual unvested is calculated as:
+     *      unvested = unvestedYield * remainingTime / totalTime
+     *
      * @param amount Amount of PUSD to inject as yield
+     * @param duration Duration over which yield will be released (in seconds)
      */
-    function accrueYield(uint256 amount) external onlyRole(YIELD_INJECTOR_ROLE) {
+    function accrueYield(uint256 amount, uint256 duration) external onlyRole(YIELD_INJECTOR_ROLE) {
         require(amount > 0, "yPUSD: zero amount");
+        require(duration >= MIN_VESTING_DURATION, "yPUSD: duration too short");
+        require(duration <= MAX_VESTING_DURATION, "yPUSD: duration too long");
         
+        // Transfer PUSD from caller
         IERC20 pusd = IERC20(asset());
         pusd.safeTransferFrom(msg.sender, address(this), amount);
         
-        // Calculate new exchange rate (for event)
-        uint256 newTotalAssets = totalAssets();
-        uint256 supply = totalSupply();
-        uint256 newRate = supply > 0 ? (newTotalAssets * 1e18) / supply : 1e18;
+        // Calculate currently unvested yield from previous vesting
+        uint256 currentUnvested = _getUnvestedYield();
         
-        emit YieldAccrued(amount, newTotalAssets, newRate);
+        // Update released yield tracking (settle previous vesting)
+        if (currentUnvested < unvestedYield) {
+            uint256 newlyReleased = unvestedYield - currentUnvested;
+            releasedYield += newlyReleased;
+            emit VestingUpdated(newlyReleased, releasedYield);
+        }
+        
+        // New total unvested = remaining unvested from previous + new amount
+        uint256 totalUnvested = currentUnvested + amount;
+        
+        // Set new vesting schedule
+        // vestingRate is kept for informational purposes (view function)
+        vestingRate = totalUnvested / duration;
+        vestingEndTime = block.timestamp + duration;
+        lastVestingUpdate = block.timestamp;
+        unvestedYield = totalUnvested;  // This is the total yield for this vesting period
+        
+        emit YieldAccrued(amount, duration, vestingRate);
+    }
+
+    /**
+     * @notice Settle vesting state (useful before querying accurate state)
+     * @dev Anyone can call this to update the released yield accounting
+     */
+    function settleVesting() external {
+        _settleVesting();
+    }
+
+    /**
+     * @notice Internal function to settle vesting
+     * @dev Updates storage to reflect current vesting state
+     */
+    function _settleVesting() internal {
+        uint256 currentUnvested = _getUnvestedYield();
+        
+        if (currentUnvested < unvestedYield) {
+            uint256 newlyReleased = unvestedYield - currentUnvested;
+            releasedYield += newlyReleased;
+            
+            // Update storage to current state
+            unvestedYield = currentUnvested;
+            lastVestingUpdate = block.timestamp;
+            
+            emit VestingUpdated(newlyReleased, releasedYield);
+        }
     }
 
     /* ========== View Functions ========== */
+
+    /**
+     * @notice Get current vesting information
+     * @return _vestingEndTime When vesting ends
+     * @return _vestingRate Rate of yield release per second
+     * @return _unvestedYield Amount of yield not yet released
+     * @return _releasedYield Total yield released so far
+     */
+    function getVestingInfo() external view returns (
+        uint256 _vestingEndTime,
+        uint256 _vestingRate,
+        uint256 _unvestedYield,
+        uint256 _releasedYield
+    ) {
+        return (
+            vestingEndTime,
+            vestingRate,
+            _getUnvestedYield(),  // Calculate current unvested
+            releasedYield + (unvestedYield - _getUnvestedYield())  // Include pending releases
+        );
+    }
 
     /**
      * @notice Get the current exchange rate (assets per share)

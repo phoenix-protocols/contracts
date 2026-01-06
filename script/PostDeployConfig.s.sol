@@ -106,7 +106,7 @@ contract PostDeployConfig is Script {
         // 8. Configure Bridge Chains
         _configureBridgeChains();
 
-        // 9. Configure Roles (BRIDGE_ROLE, PRICE_UPDATER_ROLE, etc.)
+        // 9. Configure Roles (BRIDGE_ROLE, etc.)
         _configureRoles();
 
         vm.stopBroadcast();
@@ -169,74 +169,48 @@ contract PostDeployConfig is Script {
     }
 
     // ════════════════════════════════════════════════════════════════════════
-    // ORACLE - Add Token + Bootstrap Mode
+    // ORACLE - Add Token with Chainlink Feed (Simplified: PUSD/USD = 1)
     // ════════════════════════════════════════════════════════════════════════
     function _configureOracle() internal {
-        console.log("--- Configuring Oracle ---");
+        console.log("--- Configuring Oracle (Simplified Primary Market Design) ---");
+        console.log("  PUSD/USD = 1 (constant), only Chainlink feeds for Token/USD");
 
         PUSDOracleUpgradeable oracleContract = PUSDOracleUpgradeable(oracle);
 
-        // 1. Enable bootstrap mode (1:1 pricing for stablecoins)
-        oracleContract.enableBootstrapMode();
-        console.log("  Bootstrap mode enabled");
-
         address usdt;
         address usdc;
+        address usdtFeed;
+        address usdcFeed;
 
         if (block.chainid == 97) {
             // BSC Testnet
             usdt = vm.envOr("BSC_TESTNET_USDT", address(0));
             usdc = vm.envOr("BSC_TESTNET_USDC", address(0));
+            usdtFeed = vm.envOr("BSC_TESTNET_FEED_USDT_USD", address(0));
+            usdcFeed = vm.envOr("BSC_TESTNET_FEED_USDC_USD", address(0));
         } else if (block.chainid == 56) {
             // BSC Mainnet
             usdt = vm.envOr("BSC_USDT", address(0));
             usdc = vm.envOr("BSC_USDC", address(0));
+            usdtFeed = vm.envOr("BSC_FEED_USDT_USD", address(0));
+            usdcFeed = vm.envOr("BSC_FEED_USDC_USD", address(0));
         } else {
             console.log("  WARNING: Unknown chain, skipping Oracle config");
             return;
         }
 
-        // 2. Add bootstrap tokens (for 1:1 pricing)
-        if (usdt != address(0)) {
-            oracleContract.addBootstrapToken(usdt);
-            console.log("  Added USDT to bootstrap:", usdt);
-        }
-        if (usdc != address(0)) {
-            oracleContract.addBootstrapToken(usdc);
-            console.log("  Added USDC to bootstrap:", usdc);
+        // Add tokens with Chainlink feeds only (no DEX oracle needed)
+        if (usdt != address(0) && usdtFeed != address(0)) {
+            oracleContract.addToken(usdt, usdtFeed);
+            console.log("  Added USDT with Chainlink feed:", usdtFeed);
         }
 
-        // 3. Add tokens with full oracle config (Chainlink + DEX)
-        address usdtFeed;
-        address usdcFeed;
-        address usdtPusdOracle;
-        address usdcPusdOracle;
-
-        if (block.chainid == 97) {
-            // BSC Testnet
-            usdtFeed = vm.envOr("BSC_TESTNET_FEED_USDT_USD", address(0));
-            usdcFeed = vm.envOr("BSC_TESTNET_FEED_USDC_USD", address(0));
-            usdtPusdOracle = vm.envOr("BSC_TESTNET_ORACLE_USDT_PUSD", address(0));
-            usdcPusdOracle = vm.envOr("BSC_TESTNET_ORACLE_USDC_PUSD", address(0));
-        } else if (block.chainid == 56) {
-            // BSC Mainnet
-            usdtFeed = vm.envOr("BSC_FEED_USDT_USD", address(0));
-            usdcFeed = vm.envOr("BSC_FEED_USDC_USD", address(0));
-            usdtPusdOracle = vm.envOr("BSC_ORACLE_USDT_PUSD", address(0));
-            usdcPusdOracle = vm.envOr("BSC_ORACLE_USDC_PUSD", address(0));
+        if (usdc != address(0) && usdcFeed != address(0)) {
+            oracleContract.addToken(usdc, usdcFeed);
+            console.log("  Added USDC with Chainlink feed:", usdcFeed);
         }
 
-        if (usdt != address(0) && usdtFeed != address(0) && usdtPusdOracle != address(0)) {
-            oracleContract.addToken(usdt, usdtFeed, usdtPusdOracle);
-            console.log("  Added USDT with Chainlink + DEX oracle");
-        }
-
-        if (usdc != address(0) && usdcFeed != address(0) && usdcPusdOracle != address(0)) {
-            oracleContract.addToken(usdc, usdcFeed, usdcPusdOracle);
-            console.log("  Added USDC with Chainlink + DEX oracle");
-        }
-
-        // 4. Send initial heartbeat to Vault (CRITICAL for deposits/withdrawals to work)
+        // Send initial heartbeat to Vault (CRITICAL for deposits/withdrawals to work)
         oracleContract.sendHeartbeat();
         console.log("  Initial heartbeat sent to Vault");
     }
@@ -519,17 +493,7 @@ contract PostDeployConfig is Script {
             console.log("  Farm.BRIDGE_ROLE already granted to relayer");
         }
 
-        // 2. Oracle: Grant PRICE_UPDATER_ROLE to relayer
-        PUSDOracleUpgradeable oracleContract = PUSDOracleUpgradeable(oracle);
-        bytes32 priceUpdaterRole = keccak256("PRICE_UPDATER_ROLE");
-        if (!oracleContract.hasRole(priceUpdaterRole, relayer)) {
-            oracleContract.grantRole(priceUpdaterRole, relayer);
-            console.log("  Oracle.PRICE_UPDATER_ROLE granted to relayer:", relayer);
-        } else {
-            console.log("  Oracle.PRICE_UPDATER_ROLE already granted to relayer");
-        }
-
-        // 3. ReferralManager: Grant REWARD_MANAGER_ROLE to Relayer
+        // 2. ReferralManager: Grant REWARD_MANAGER_ROLE to Relayer
         if (referralManager != address(0)) {
             ReferralRewardManager refContract = ReferralRewardManager(referralManager);
             bytes32 rewardManagerRole = keccak256("REWARD_MANAGER_ROLE");
@@ -541,7 +505,7 @@ contract PostDeployConfig is Script {
             }
         }
 
-        // 4. yPUSD: Grant YIELD_INJECTOR_ROLE to keeper (for accrueYield)
+        // 3. yPUSD: Grant YIELD_INJECTOR_ROLE to keeper (for accrueYield)
         if (ypusd != address(0) && keeper != address(0)) {
             yPUSD ypusdContract = yPUSD(ypusd);
             bytes32 yieldInjectorRole = keccak256("YIELD_INJECTOR_ROLE");
@@ -556,7 +520,7 @@ contract PostDeployConfig is Script {
             if (keeper == address(0)) console.log("  WARNING: KEEPER not set, skipping YIELD_INJECTOR_ROLE");
         }
 
-        // 5. Vault: Grant PAUSER_ROLE to Oracle (for depeg auto-pause)
+        // 4. Vault: Grant PAUSER_ROLE to Oracle (for depeg auto-pause)
         Vault vaultContract = Vault(vault);
         bytes32 pauserRole = keccak256("PAUSER_ROLE");
         if (!vaultContract.hasRole(pauserRole, oracle)) {
@@ -566,7 +530,7 @@ contract PostDeployConfig is Script {
             console.log("  Vault.PAUSER_ROLE already granted to Oracle");
         }
 
-        // 6. Farm: Grant OPERATOR_ROLE to operator (for APY/fees/configuration)
+        // 5. Farm: Grant OPERATOR_ROLE to operator (for APY/fees/configuration)
         if (operator != address(0)) {
             bytes32 operatorRole = keccak256("OPERATOR_ROLE");
             if (!farmContract.hasRole(operatorRole, operator)) {
@@ -579,7 +543,7 @@ contract PostDeployConfig is Script {
             console.log("  WARNING: OPERATOR not set, skipping OPERATOR_ROLE");
         }
 
-        // 7. FarmLend: Grant OPERATOR_ROLE to operator (for configuration management)
+        // 6. FarmLend: Grant OPERATOR_ROLE to operator (for configuration management)
         if (farmLend != address(0) && operator != address(0)) {
             FarmLend farmLendContract = FarmLend(farmLend);
             bytes32 operatorRole = keccak256("OPERATOR_ROLE");

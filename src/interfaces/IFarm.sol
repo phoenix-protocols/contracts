@@ -84,11 +84,9 @@ interface IFarm {
 
     function stakePUSD(uint256 amount, uint256 lockPeriod) external returns (uint256 tokenId);
 
-    function renewStake(uint256 tokenId, bool compoundRewards, uint256 newLockPeriod) external;
+    function renewStake(uint256 tokenId, uint256 newLockPeriod) external;
 
     function unstakePUSD(uint256 tokenId) external;
-
-    function claimStakeRewards(uint256 tokenId) external;
 
     function getStakeInfo(address account, uint256 queryType, uint256 tokenId, uint256 amount) external view returns (uint256 result, string memory reason);
 

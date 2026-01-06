@@ -308,7 +308,7 @@ contract FarmIntegrationTest is Test, Farm_Deployer_Base {
 
         // Renew with new lock period
         vm.prank(user1);
-        farm.renewStake(tokenId, false, 90 days);
+        farm.renewStake(tokenId, 90 days);
 
         // Check updated record
         IFarm.StakeRecord memory record = nftManager.getStakeRecord(tokenId);
@@ -335,61 +335,14 @@ contract FarmIntegrationTest is Test, Farm_Deployer_Base {
 
         IFarm.StakeRecord memory recordBefore = nftManager.getStakeRecord(tokenId);
 
-        // Renew with compound
+        // Renew - rewards are automatically compounded
         vm.prank(user1);
-        farm.renewStake(tokenId, true, 30 days);
+        farm.renewStake(tokenId, 30 days);
 
         IFarm.StakeRecord memory recordAfter = nftManager.getStakeRecord(tokenId);
         
         // Amount should have increased due to compounding
         assertGe(recordAfter.amount, recordBefore.amount);
-    }
-
-    // ==================== Claim Rewards Tests ====================
-
-    function test_ClaimStakeRewards_Success() public {
-        uint256 stakeAmount = 500 * 1e6;
-
-        // Setup reward reserve
-        vm.prank(admin);
-        pusd.mint(address(vault), 10000 * 1e6);
-
-        vm.startPrank(user1);
-        usdt.approve(address(vault), 1000 * 1e6);
-        farm.depositAsset(address(usdt), 1000 * 1e6);
-        pusd.approve(address(farm), stakeAmount);
-        uint256 tokenId = farm.stakePUSD(stakeAmount, 30 days);
-        vm.stopPrank();
-
-        uint256 pusdBefore = pusd.balanceOf(user1);
-
-        // Warp to accumulate rewards (but stay within lock period)
-        vm.warp(block.timestamp + 15 days);
-
-        // Claim rewards
-        vm.prank(user1);
-        farm.claimStakeRewards(tokenId);
-
-        // Should have received some rewards
-        assertGt(pusd.balanceOf(user1), pusdBefore);
-    }
-
-    function test_ClaimStakeRewards_RevertNotOwner() public {
-        uint256 stakeAmount = 500 * 1e6;
-
-        vm.startPrank(user1);
-        usdt.approve(address(vault), 1000 * 1e6);
-        farm.depositAsset(address(usdt), 1000 * 1e6);
-        pusd.approve(address(farm), stakeAmount);
-        uint256 tokenId = farm.stakePUSD(stakeAmount, 30 days);
-        vm.stopPrank();
-
-        vm.warp(block.timestamp + 15 days);
-
-        // User2 tries to claim
-        vm.prank(user2);
-        vm.expectRevert("Not owner");
-        farm.claimStakeRewards(tokenId);
     }
 
     // ==================== APY Management Tests ====================

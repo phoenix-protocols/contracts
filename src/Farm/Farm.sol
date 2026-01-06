@@ -226,11 +226,12 @@ contract FarmUpgradeable is Initializable, AccessControlUpgradeable, ReentrancyG
 
     /**
      * @notice Renew stake
-     * @dev After stake unlock, can choose new lock period to continue staking
+     * @dev After stake unlock, can choose new lock period to continue staking.
+     *      Rewards are automatically compounded into the stake principal.
      * @param tokenId Stake record ID (NFT tokenId)
-     * @param compoundRewards Whether to compound rewards into stake
+     * @param newLockPeriod New lock period in seconds
      */
-    function renewStake(uint256 tokenId, bool compoundRewards, uint256 newLockPeriod) external nonReentrant whenNotPaused {
+    function renewStake(uint256 tokenId, uint256 newLockPeriod) external nonReentrant whenNotPaused {
         NFTManager nftManager = NFTManager(_nftManager);
         require(nftManager.ownerOf(tokenId) == msg.sender, "Not owner");
         StakeRecord memory stakeRecord = nftManager.getStakeRecord(tokenId);
@@ -241,14 +242,15 @@ contract FarmUpgradeable is Initializable, AccessControlUpgradeable, ReentrancyG
         require(lockPeriodMultipliers[newLockPeriod] > 0, "Invalid period");
 
         // Call internal function directly to avoid code duplication
-        _executeRenewal(tokenId, compoundRewards, newLockPeriod);
+        _executeRenewal(tokenId, newLockPeriod);
     }
 
     /**
      * @notice Internal function to execute renewal
-     * @dev Core logic extracted from renewStake to avoid code duplication
+     * @dev Core logic extracted from renewStake to avoid code duplication.
+     *      Rewards are always compounded into the stake principal.
      */
-    function _executeRenewal(uint256 tokenId, bool compoundRewards, uint256 newLockPeriod) internal {
+    function _executeRenewal(uint256 tokenId, uint256 newLockPeriod) internal {
         NFTManager nftManager = NFTManager(_nftManager);
         StakeRecord memory stakeRecord = nftManager.getStakeRecord(tokenId);
 
@@ -265,29 +267,15 @@ contract FarmUpgradeable is Initializable, AccessControlUpgradeable, ReentrancyG
         stakeRecord.lastClaimTime = block.timestamp;
         stakeRecord.lockPeriod = newLockPeriod;
         stakeRecord.rewardMultiplier = lockPeriodMultipliers[newLockPeriod];
+        stakeRecord.pendingReward = 0;
 
+        // Compound rewards: add to stake principal
         if (totalReward > 0) {
-            if (compoundRewards) {
-                // Compounding mode: directly add rewards to stake principal (rewards in PUSD units)
-                stakeRecord.amount += totalReward;
-                stakeRecord.pendingReward = 0;
-                
-                // Update totalStaked for compounded rewards
-                totalStaked += totalReward;
-                
-                emit StakeRenewal(msg.sender, tokenId, newLockPeriod, totalReward, stakeRecord.amount, true);
-            } else {
-                // Traditional mode: distribute PUSD rewards from reserve
-                bool success = _distributeReward(msg.sender, totalReward);
-                require(success, "Low reserve");
-                stakeRecord.pendingReward = 0;
-
-                emit StakeRewardsClaimed(msg.sender, tokenId, totalReward);
-                emit StakeRenewal(msg.sender, tokenId, stakeRecord.lockPeriod, totalReward, stakeRecord.amount, false);
-            }
+            stakeRecord.amount += totalReward;
+            totalStaked += totalReward;
         }
 
-        // Update poolTVL if lock period changed or rewards compounded
+        // Update poolTVL
         if (oldLockPeriod != newLockPeriod) {
             // Transfer TVL from old pool to new pool
             if (poolTVL[oldLockPeriod] >= oldAmount) {
@@ -296,10 +284,12 @@ contract FarmUpgradeable is Initializable, AccessControlUpgradeable, ReentrancyG
                 poolTVL[oldLockPeriod] = 0;
             }
             poolTVL[newLockPeriod] += stakeRecord.amount;
-        } else if (compoundRewards && totalReward > 0) {
+        } else if (totalReward > 0) {
             // Same pool but amount increased due to compounding
             poolTVL[newLockPeriod] += totalReward;
         }
+
+        emit StakeRenewal(msg.sender, tokenId, newLockPeriod, totalReward, stakeRecord.amount, true);
 
         // Update user operation time
         UserAssetInfo storage userInfo = userAssets[msg.sender];
@@ -371,41 +361,6 @@ contract FarmUpgradeable is Initializable, AccessControlUpgradeable, ReentrancyG
         _removeTokenIdFromUser(msg.sender, tokenId);
 
         emit StakeOperation(msg.sender, tokenId, amount, 0, false);
-    }
-
-    /**
-     * @notice Claim rewards for specific stake record
-     * @dev Rewards accrue only until unlock; claiming after unlock does not add extra yield
-     * @param tokenId Stake record ID
-     */
-    function claimStakeRewards(uint256 tokenId) external nonReentrant whenNotPaused {
-        NFTManager nftManager = NFTManager(_nftManager);
-        require(nftManager.ownerOf(tokenId) == msg.sender, "Not owner");
-
-        StakeRecord memory stakeRecord = nftManager.getStakeRecord(tokenId);
-        require(stakeRecord.active, "Inactive stake");
-
-        // Calculate rewards (from last claim time to now)
-        uint256 pendingReward = _calculateStakeReward(stakeRecord) + stakeRecord.pendingReward;
-        require(pendingReward > 0, "No rewards");
-        // Update last claim time
-        stakeRecord.lastClaimTime = block.timestamp;
-        stakeRecord.pendingReward = 0;
-
-        nftManager.updateStakeRecord(tokenId, stakeRecord);
-
-        // Distribute PUSD rewards from reserve
-        bool success = _distributeReward(msg.sender, pendingReward);
-        require(success, "Low reserve");
-
-        // Update user operation time
-        UserAssetInfo storage userInfo = userAssets[msg.sender];
-        if (userInfo.lastActionTime == 0) {
-            totalUsers++;
-        }
-        userInfo.lastActionTime = block.timestamp;
-
-        emit StakeRewardsClaimed(msg.sender, tokenId, pendingReward);
     }
 
     /**

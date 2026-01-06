@@ -147,10 +147,10 @@ contract FullDeploy is Script {
         console.log("ReferralManager:", address(referralManager));
         console.log("");
         console.log("=== Post-deployment Actions Required ===");
-        console.log("1. Add supported assets to Vault: vault.addAsset(token, minDeposit, maxDeposit)");
-        console.log("2. Add tokens to Oracle: oracle.addToken(token, chainlinkFeed, uniswapOracle)");
-        console.log("3. For bootstrap (no DEX): oracle.enableBootstrapMode() + oracle.addBootstrapToken(token)");
-        console.log("4. Set FarmLend parameters: farmLend.setDebtTokenConfig(...)");
+        console.log("1. Add supported assets to Vault: vault.addAsset(token, name)");
+        console.log("2. Add tokens to Oracle: oracle.addToken(token, chainlinkFeed)");
+        console.log("   (PUSD/USD = 1 constant, only need Chainlink Token/USD feed)");
+        console.log("3. Set FarmLend parameters: farmLend.setDebtTokenConfig(...)");
     }
 
     // ========== Salt Generation ==========

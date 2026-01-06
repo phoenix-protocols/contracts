@@ -192,7 +192,7 @@ contract FarmUnitTest is Test, Farm_Deployer_Base {
         vm.warp(block.timestamp + 31 days);
 
         vm.prank(user1);
-        farm.renewStake(tokenId, false, 90 days);
+        farm.renewStake(tokenId, 90 days);
 
         IFarm.StakeRecord memory record = nftManager.getStakeRecord(tokenId);
         assertEq(record.lockPeriod, 90 days);
@@ -207,44 +207,8 @@ contract FarmUnitTest is Test, Farm_Deployer_Base {
         uint256 tokenId = farm.stakePUSD(stakeAmount, 30 days);
 
         vm.expectRevert("Still locked");
-        farm.renewStake(tokenId, false, 90 days);
+        farm.renewStake(tokenId, 90 days);
         vm.stopPrank();
-    }
-
-    // ==================== Claim Rewards Tests ====================
-
-    function test_ClaimStakeRewards_Success() public {
-        uint256 stakeAmount = 500 * 1e6;
-
-        vm.startPrank(user1);
-        pusd.approve(address(farm), stakeAmount);
-        uint256 tokenId = farm.stakePUSD(stakeAmount, 30 days);
-        vm.stopPrank();
-
-        uint256 balanceBefore = pusd.balanceOf(user1);
-
-        vm.warp(block.timestamp + 15 days);
-
-        vm.prank(user1);
-        farm.claimStakeRewards(tokenId);
-
-        // Should have received some rewards
-        assertGt(pusd.balanceOf(user1), balanceBefore);
-    }
-
-    function test_ClaimStakeRewards_RevertNotOwner() public {
-        uint256 stakeAmount = 500 * 1e6;
-
-        vm.startPrank(user1);
-        pusd.approve(address(farm), stakeAmount);
-        uint256 tokenId = farm.stakePUSD(stakeAmount, 30 days);
-        vm.stopPrank();
-
-        vm.warp(block.timestamp + 15 days);
-
-        vm.prank(user2);
-        vm.expectRevert("Not owner");
-        farm.claimStakeRewards(tokenId);
     }
 
     // ==================== APY & Config Tests ====================
