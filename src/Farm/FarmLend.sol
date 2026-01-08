@@ -887,6 +887,7 @@ contract FarmLend is Initializable, AccessControlUpgradeable, ReentrancyGuardUpg
 
     /// @notice Internal slash logic - checks conditions and executes if met
     /// @dev Distributes any pending staking rewards to borrower before burning NFT
+    ///      Slash is triggered when collateral < minCollateralThreshold (including 0)
     /// @return slashed Whether slash was executed
     function _slash(uint256 tokenId) internal returns (bool slashed) {
         Loan storage loan = loans[tokenId];
@@ -896,8 +897,8 @@ contract FarmLend is Initializable, AccessControlUpgradeable, ReentrancyGuardUpg
         if (loan.borrower == address(0)) return false;  // Already slashed or no loan
         
         uint256 collateral = loan.remainingCollateralAmount;
-        if (collateral == 0) return false;  // No collateral
-        if (collateral >= minCollateralThreshold) return false;  // Above threshold
+        // Slash when collateral is below threshold (including 0) to clean up NFT and loan record
+        if (collateral >= minCollateralThreshold) return false;  // Above threshold, no slash needed
         
         address borrower = loan.borrower;
         
@@ -932,9 +933,9 @@ contract FarmLend is Initializable, AccessControlUpgradeable, ReentrancyGuardUpg
     function canSlash(uint256 tokenId) external view returns (bool canSlash, uint256 collateral) {
         Loan storage loan = loans[tokenId];
         collateral = loan.remainingCollateralAmount;
+        // Slash when collateral is below threshold (including 0) to clean up NFT and loan record
         canSlash = !loan.active 
             && loan.borrower != address(0)
-            && collateral > 0 
             && collateral < minCollateralThreshold;
     }
 
