@@ -742,6 +742,45 @@ contract FarmUpgradeable is Initializable, AccessControlUpgradeable, ReentrancyG
         }
     }
 
+    /**
+     * @notice Callback from NFTManager when stake NFT is transferred
+     * @dev Updates tokenIds arrays for both sender and receiver
+     * @param from Previous owner address
+     * @param to New owner address  
+     * @param tokenId The transferred token ID
+     */
+    function onNFTTransfer(address from, address to, uint256 tokenId) external {
+        require(msg.sender == _nftManager, "Only NFTManager");
+        
+        // Remove tokenId from sender's array
+        _removeTokenIdFromUser(from, tokenId);
+        
+        // Add tokenId to receiver's array
+        UserAssetInfo storage receiverInfo = userAssets[to];
+        receiverInfo.tokenIds.push(tokenId);
+        
+        // Update receiver's lastActionTime if first interaction
+        if (receiverInfo.lastActionTime == 0) {
+            totalUsers++;
+        }
+        receiverInfo.lastActionTime = block.timestamp;
+        
+        emit StakeNFTTransferred(from, to, tokenId);
+    }
+
+    /**
+     * @notice Callback from FarmLend when stake NFT is burned (slashed)
+     * @dev Removes tokenId from owner's tokenIds array
+     * @param owner Original owner address
+     * @param tokenId The burned token ID
+     */
+    function onNFTBurn(address owner, uint256 tokenId) external {
+        require(msg.sender == farmLend, "Only FarmLend");
+        
+        // Remove tokenId from owner's array
+        _removeTokenIdFromUser(owner, tokenId);
+    }
+
     /* ========== Multiplier Configuration Management ========== */
     /**
      * @notice Batch set lock period configuration (multipliers and pool caps)

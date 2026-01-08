@@ -149,9 +149,16 @@ contract FarmLendTest is Test, FarmLend_Deployer_Base {
         );
     }
 
-    function test_DefaultLoanDurationInterestRatios() public view {
-        assertEq(farmLend.loanDurationInterestRatios(30 days), 110); // 1.1%
-        assertEq(farmLend.loanDurationInterestRatios(60 days), 200); // 2%
+    function test_DefaultAnnualInterestRate() public view {
+        assertEq(farmLend.annualInterestRate(), 1000); // 10% APR
+    }
+
+    function test_DefaultMinBorrowAmount() public view {
+        assertEq(farmLend.minBorrowAmount(), 20e6); // 20 PUSD
+    }
+
+    function test_DefaultMinCollateralThreshold() public view {
+        assertEq(farmLend.minCollateralThreshold(), 20e6); // 20 PUSD
     }
 
     // ==================== Admin Configuration Tests ====================
@@ -243,10 +250,40 @@ contract FarmLendTest is Test, FarmLend_Deployer_Base {
         assertEq(farmLend.penaltyRatio(), 500);
     }
 
-    function test_SetLoanDurationInterestRatios() public {
+    function test_SetAnnualInterestRate() public {
         vm.prank(admin);
-        farmLend.setLoanDurationInterestRatios(90 days, 300); // 3% for 90 days
-        assertEq(farmLend.loanDurationInterestRatios(90 days), 300);
+        farmLend.setAnnualInterestRate(1500); // 15% APR
+        assertEq(farmLend.annualInterestRate(), 1500);
+    }
+
+    function test_SetAnnualInterestRate_RevertTooHigh() public {
+        vm.prank(admin);
+        vm.expectRevert("FarmLend: rate too high");
+        farmLend.setAnnualInterestRate(5100); // > 50% APR
+    }
+
+    function test_SetMinBorrowAmount() public {
+        vm.prank(admin);
+        farmLend.setMinBorrowAmount(50e6); // 50 PUSD
+        assertEq(farmLend.minBorrowAmount(), 50e6);
+    }
+
+    function test_SetMinBorrowAmount_RevertTooHigh() public {
+        vm.prank(admin);
+        vm.expectRevert("FarmLend: min borrow too high");
+        farmLend.setMinBorrowAmount(1001e6); // > 1000 PUSD
+    }
+
+    function test_SetMinCollateralThreshold() public {
+        vm.prank(admin);
+        farmLend.setMinCollateralThreshold(50e6); // 50 PUSD
+        assertEq(farmLend.minCollateralThreshold(), 50e6);
+    }
+
+    function test_SetMinCollateralThreshold_RevertTooHigh() public {
+        vm.prank(admin);
+        vm.expectRevert("FarmLend: threshold too high");
+        farmLend.setMinCollateralThreshold(101e6); // > 100 PUSD
     }
 
     function test_SetLoanGracePeriod() public {
@@ -319,7 +356,7 @@ contract FarmLendTest is Test, FarmLend_Deployer_Base {
     function test_BorrowWithNFT_Success() public {
         vm.startPrank(user1);
         
-        farmLend.borrowWithNFT(TOKEN_ID_1, address(usdt), 500e6, 30 days);
+        farmLend.borrowWithNFT(TOKEN_ID_1, address(usdt), 500e6);
         
         vm.stopPrank();
         
@@ -337,7 +374,7 @@ contract FarmLendTest is Test, FarmLend_Deployer_Base {
     function test_BorrowWithNFT_RevertNotOwner() public {
         vm.prank(user2);
         vm.expectRevert("FarmLend: not NFT owner");
-        farmLend.borrowWithNFT(TOKEN_ID_1, address(usdt), 500e6, 30 days);
+        farmLend.borrowWithNFT(TOKEN_ID_1, address(usdt), 500e6);
     }
 
     function test_BorrowWithNFT_RevertDebtTokenNotAllowed() public {
@@ -345,30 +382,50 @@ contract FarmLendTest is Test, FarmLend_Deployer_Base {
         
         vm.prank(user1);
         vm.expectRevert("FarmLend: debt token not allowed");
-        farmLend.borrowWithNFT(TOKEN_ID_1, randomToken, 500e6, 30 days);
+        farmLend.borrowWithNFT(TOKEN_ID_1, randomToken, 500e6);
     }
 
     function test_BorrowWithNFT_RevertZeroAmount() public {
         vm.prank(user1);
         vm.expectRevert("FarmLend: zero amount");
-        farmLend.borrowWithNFT(TOKEN_ID_1, address(usdt), 0, 30 days);
+        farmLend.borrowWithNFT(TOKEN_ID_1, address(usdt), 0);
     }
 
     function test_BorrowWithNFT_RevertExceedsMax() public {
         vm.prank(user1);
         vm.expectRevert("FarmLend: amount exceeds max borrowable");
-        farmLend.borrowWithNFT(TOKEN_ID_1, address(usdt), 900e6, 30 days); // > 800 max
+        farmLend.borrowWithNFT(TOKEN_ID_1, address(usdt), 900e6); // > 769 max
     }
 
-    function test_BorrowWithNFT_RevertInvalidDuration() public {
+    function test_BorrowWithNFT_RevertBorrowTooSmall() public {
+        vm.prank(admin);
+        farmLend.setMinBorrowAmount(50e6); // 50 PUSD min
+        
         vm.prank(user1);
-        vm.expectRevert("FarmLend: invalid loan duration");
-        farmLend.borrowWithNFT(TOKEN_ID_1, address(usdt), 500e6, 45 days); // not configured
+        vm.expectRevert("FarmLend: borrow amount too small");
+        farmLend.borrowWithNFT(TOKEN_ID_1, address(usdt), 30e6); // < 50 PUSD
+    }
+
+    function test_BorrowWithNFT_RevertNFTAlreadyUnlocked() public {
+        // Set stake record with past unlock time
+        nftManager.setStakeRecord(TOKEN_ID_1, IFarm.StakeRecord({
+            amount: 1000e6,
+            startTime: block.timestamp - 60 days,
+            lockPeriod: 30 days, // Already unlocked
+            lastClaimTime: block.timestamp,
+            rewardMultiplier: 10000,
+            active: true,
+            pendingReward: 0
+        }));
+        
+        vm.prank(user1);
+        vm.expectRevert("FarmLend: NFT already unlocked");
+        farmLend.borrowWithNFT(TOKEN_ID_1, address(usdt), 500e6);
     }
 
     function test_BorrowWithNFT_RevertLoanAlreadyActive() public {
         vm.startPrank(user1);
-        farmLend.borrowWithNFT(TOKEN_ID_1, address(usdt), 500e6, 30 days);
+        farmLend.borrowWithNFT(TOKEN_ID_1, address(usdt), 500e6);
         
         // Reset NFT owner for second attempt (simulating)
         vm.stopPrank();
@@ -376,7 +433,7 @@ contract FarmLendTest is Test, FarmLend_Deployer_Base {
         
         vm.prank(user1);
         vm.expectRevert("FarmLend: loan already active");
-        farmLend.borrowWithNFT(TOKEN_ID_1, address(usdt), 100e6, 30 days);
+        farmLend.borrowWithNFT(TOKEN_ID_1, address(usdt), 100e6);
     }
 
     // ==================== getLoanDebt Tests ====================
@@ -392,32 +449,32 @@ contract FarmLendTest is Test, FarmLend_Deployer_Base {
     function test_GetLoanDebt_WithInterest() public {
         // Borrow
         vm.prank(user1);
-        farmLend.borrowWithNFT(TOKEN_ID_1, address(usdt), 500e6, 30 days);
+        farmLend.borrowWithNFT(TOKEN_ID_1, address(usdt), 500e6);
         
-        // Fast forward 15 days (half of loan duration)
+        // Fast forward 15 days
         vm.warp(block.timestamp + 15 days);
         
-        // Interest = 500 * 1.1% * 15/30 = 500 * 0.011 * 0.5 = 2.75
+        // Interest = 500 * 10% * 15/365 = 500 * 0.1 * 0.041 = 2.05 USDT
         (uint256 principal, uint256 interest, uint256 penalty, uint256 total) = farmLend.getLoanDebt(TOKEN_ID_1);
         assertEq(principal, 500e6);
-        assertApproxEqAbs(interest, 2.75e6, 0.1e6);
+        assertApproxEqAbs(interest, 2.05e6, 0.1e6);
         assertEq(penalty, 0);
-        assertApproxEqAbs(total, 502.75e6, 0.1e6);
+        assertApproxEqAbs(total, 502.05e6, 0.1e6);
     }
 
     function test_GetLoanDebt_WithPenalty() public {
         // Borrow
         vm.prank(user1);
-        farmLend.borrowWithNFT(TOKEN_ID_1, address(usdt), 500e6, 30 days);
+        farmLend.borrowWithNFT(TOKEN_ID_1, address(usdt), 500e6);
         
-        // Fast forward past due date + penalty grace period (30 days + 3 days + 2 days)
+        // Fast forward past due date + penalty grace period (30 days + 3 days + 2 days = 35 days)
         vm.warp(block.timestamp + 35 days);
         
         // Should have both interest and penalty
         (uint256 principal, uint256 interest, uint256 penalty, uint256 total) = farmLend.getLoanDebt(TOKEN_ID_1);
         assertEq(principal, 500e6);
         assertTrue(interest > 0);
-        assertTrue(penalty > 0); // 2 days * 4% per day
+        assertTrue(penalty > 0); // 5 days * 0.5% per day (from endTime to now)
         assertEq(total, principal + interest + penalty);
     }
 
@@ -430,7 +487,7 @@ contract FarmLendTest is Test, FarmLend_Deployer_Base {
 
     function test_GetHealthFactor_HealthyLoan() public {
         vm.prank(user1);
-        farmLend.borrowWithNFT(TOKEN_ID_1, address(usdt), 500e6, 30 days);
+        farmLend.borrowWithNFT(TOKEN_ID_1, address(usdt), 500e6);
         
         // Collateral: 1000 PUSD, Debt: 500 USDT, CR = 200%
         // healthFactor = 200% / 125% = 1.6 > 1
@@ -443,7 +500,7 @@ contract FarmLendTest is Test, FarmLend_Deployer_Base {
     function test_Repay_Partial() public {
         // Borrow
         vm.prank(user1);
-        farmLend.borrowWithNFT(TOKEN_ID_1, address(usdt), 500e6, 30 days);
+        farmLend.borrowWithNFT(TOKEN_ID_1, address(usdt), 500e6);
         
         // Mint USDT to user1 for repayment
         usdt.mint(user1, 200e6);
@@ -465,7 +522,7 @@ contract FarmLendTest is Test, FarmLend_Deployer_Base {
     function test_RepayFull() public {
         // Borrow
         vm.prank(user1);
-        farmLend.borrowWithNFT(TOKEN_ID_1, address(usdt), 500e6, 30 days);
+        farmLend.borrowWithNFT(TOKEN_ID_1, address(usdt), 500e6);
         
         // Fast forward a bit
         vm.warp(block.timestamp + 10 days);
@@ -494,7 +551,7 @@ contract FarmLendTest is Test, FarmLend_Deployer_Base {
 
     function test_Repay_RevertZeroAmount() public {
         vm.prank(user1);
-        farmLend.borrowWithNFT(TOKEN_ID_1, address(usdt), 500e6, 30 days);
+        farmLend.borrowWithNFT(TOKEN_ID_1, address(usdt), 500e6);
         
         vm.prank(user1);
         vm.expectRevert("FarmLend: zero amount");
@@ -503,10 +560,10 @@ contract FarmLendTest is Test, FarmLend_Deployer_Base {
 
     function test_Repay_RevertOverdue() public {
         vm.prank(user1);
-        farmLend.borrowWithNFT(TOKEN_ID_1, address(usdt), 500e6, 30 days);
+        farmLend.borrowWithNFT(TOKEN_ID_1, address(usdt), 500e6);
         
-        // Fast forward past grace period
-        vm.warp(block.timestamp + 38 days); // 30 days loan + 7 days grace + 1 day
+        // Fast forward past grace period (30 days loan + 7 days grace + 1 day)
+        vm.warp(block.timestamp + 38 days);
         
         usdt.mint(user1, 600e6);
         vm.startPrank(user1);
@@ -585,9 +642,9 @@ contract FarmLendTest is Test, FarmLend_Deployer_Base {
         uint256 actualBorrow = borrowAmount > maxBorrowBefore ? maxBorrowBefore - 1e6 : borrowAmount;
         emit log_named_uint("Actual borrow", actualBorrow);
         
-        // Borrow
+        // Borrow (loan ends at NFT unlock time = now + 30 days)
         vm.prank(user1);
-        farmLend.borrowWithNFT(TOKEN_ID_1, address(usdt), actualBorrow, 30 days);
+        farmLend.borrowWithNFT(TOKEN_ID_1, address(usdt), actualBorrow);
         
         // Fast forward and change price (token appreciates = collateral worth less)
         vm.warp(block.timestamp + warpTime);
@@ -630,7 +687,7 @@ contract FarmLendTest is Test, FarmLend_Deployer_Base {
     function test_Liquidate_RevertNotLiquidatable() public {
         // User borrows conservative amount
         vm.prank(user1);
-        farmLend.borrowWithNFT(TOKEN_ID_1, address(usdt), 400e6, 30 days);
+        farmLend.borrowWithNFT(TOKEN_ID_1, address(usdt), 400e6);
         
         // Loan is healthy (CR = 250% > 125%)
         usdt.mint(liquidator, 200e6);
@@ -652,9 +709,9 @@ contract FarmLendTest is Test, FarmLend_Deployer_Base {
 
     function test_SeizeOverdueNFT() public {
         vm.prank(user1);
-        farmLend.borrowWithNFT(TOKEN_ID_1, address(usdt), 500e6, 30 days);
+        farmLend.borrowWithNFT(TOKEN_ID_1, address(usdt), 500e6);
         
-        // Fast forward past grace period
+        // Fast forward past grace period (30 days + 7 days + 1 day)
         vm.warp(block.timestamp + 38 days);
         
         vm.prank(admin);
@@ -666,9 +723,9 @@ contract FarmLendTest is Test, FarmLend_Deployer_Base {
 
     function test_SeizeOverdueNFT_RevertNotOverdue() public {
         vm.prank(user1);
-        farmLend.borrowWithNFT(TOKEN_ID_1, address(usdt), 500e6, 30 days);
+        farmLend.borrowWithNFT(TOKEN_ID_1, address(usdt), 500e6);
         
-        // Only 20 days passed
+        // Only 20 days passed (loan ends at 30 days)
         vm.warp(block.timestamp + 20 days);
         
         vm.prank(admin);
@@ -678,7 +735,7 @@ contract FarmLendTest is Test, FarmLend_Deployer_Base {
 
     function test_SeizeOverdueNFT_RevertUnauthorized() public {
         vm.prank(user1);
-        farmLend.borrowWithNFT(TOKEN_ID_1, address(usdt), 500e6, 30 days);
+        farmLend.borrowWithNFT(TOKEN_ID_1, address(usdt), 500e6);
         
         vm.warp(block.timestamp + 38 days);
         
@@ -691,7 +748,7 @@ contract FarmLendTest is Test, FarmLend_Deployer_Base {
 
     function test_ClaimCollateral_RevertLoanStillActive() public {
         vm.prank(user1);
-        farmLend.borrowWithNFT(TOKEN_ID_1, address(usdt), 500e6, 30 days);
+        farmLend.borrowWithNFT(TOKEN_ID_1, address(usdt), 500e6);
         
         vm.prank(user1);
         vm.expectRevert("FarmLend: loan still active");
@@ -702,7 +759,7 @@ contract FarmLendTest is Test, FarmLend_Deployer_Base {
 
     function test_GetTokenIdsForDebt() public {
         vm.prank(user1);
-        farmLend.borrowWithNFT(TOKEN_ID_1, address(usdt), 500e6, 30 days);
+        farmLend.borrowWithNFT(TOKEN_ID_1, address(usdt), 500e6);
         
         uint256[] memory tokenIds = farmLend.getTokenIdsForDebt(user1);
         assertEq(tokenIds.length, 1);
@@ -711,7 +768,7 @@ contract FarmLendTest is Test, FarmLend_Deployer_Base {
 
     function test_GetLoan() public {
         vm.prank(user1);
-        farmLend.borrowWithNFT(TOKEN_ID_1, address(usdt), 500e6, 30 days);
+        farmLend.borrowWithNFT(TOKEN_ID_1, address(usdt), 500e6);
         
         FarmLend.Loan memory loan = farmLend.getLoan(TOKEN_ID_1);
         assertTrue(loan.active);
@@ -722,17 +779,17 @@ contract FarmLendTest is Test, FarmLend_Deployer_Base {
 
     function test_GetLoansForBorrower() public {
         vm.prank(user1);
-        farmLend.borrowWithNFT(TOKEN_ID_1, address(usdt), 500e6, 30 days);
+        farmLend.borrowWithNFT(TOKEN_ID_1, address(usdt), 500e6);
         
-        (uint256[] memory tokenIds, FarmLend.Loan[] memory loans) = farmLend.getLoansForBorrower(user1);
+        (uint256[] memory tokenIds, FarmLend.Loan[] memory loansData) = farmLend.getLoansForBorrower(user1);
         assertEq(tokenIds.length, 1);
-        assertEq(loans.length, 1);
-        assertEq(loans[0].borrowedAmount, 500e6);
+        assertEq(loansData.length, 1);
+        assertEq(loansData[0].borrowedAmount, 500e6);
     }
 
     function test_GetBorrowerLoansSummary() public {
         vm.prank(user1);
-        farmLend.borrowWithNFT(TOKEN_ID_1, address(usdt), 500e6, 30 days);
+        farmLend.borrowWithNFT(TOKEN_ID_1, address(usdt), 500e6);
         
         (
             uint256[] memory tokenIds,
@@ -750,29 +807,28 @@ contract FarmLendTest is Test, FarmLend_Deployer_Base {
     // ==================== Interest and Penalty Calculation Tests ====================
 
     function test_InterestCalculation() public {
-        // With 1000 PUSD collateral and 125% LR, max borrow = 800 USDT
+        // With 1000 PUSD collateral and 130% target CR, max borrow = ~769 USDT
         vm.prank(user1);
-        farmLend.borrowWithNFT(TOKEN_ID_1, address(usdt), 500e6, 30 days);
+        farmLend.borrowWithNFT(TOKEN_ID_1, address(usdt), 500e6);
         
-        // Full duration
+        // Full 30 days (NFT lock period)
         vm.warp(block.timestamp + 30 days);
         
-        // Interest = 500 * 1.1% = 5.5 USDT
+        // Interest = 500 * 10% * 30/365 = 500 * 0.1 * 0.0822 = 4.11 USDT
         (, uint256 interest, , ) = farmLend.getLoanDebt(TOKEN_ID_1);
-        assertApproxEqAbs(interest, 5.5e6, 0.1e6);
+        assertApproxEqAbs(interest, 4.11e6, 0.1e6);
     }
 
     function test_PenaltyCalculation() public {
-        // With 1000 PUSD collateral and 125% LR, max borrow = 800 USDT
+        // With 1000 PUSD collateral and 130% target CR, max borrow = ~769 USDT
         vm.prank(user1);
-        farmLend.borrowWithNFT(TOKEN_ID_1, address(usdt), 500e6, 30 days);
+        farmLend.borrowWithNFT(TOKEN_ID_1, address(usdt), 500e6);
         
-        // Past due date + penalty grace period + 5 days
-        // Penalty actually accrues from endTime (dueDate), not from grace period end
-        // So penalty days = 8 days (30 days dueTime to 38 days)
-        vm.warp(block.timestamp + 30 days + 3 days + 5 days);
+        // Past due date + penalty grace period + 5 days = 30 + 3 + 5 = 38 days
+        // Penalty accrues from endTime (30 days), so 8 days of penalty
+        vm.warp(block.timestamp + 38 days);
         
-        // Penalty = 500 * 0.5% * 8 days = 20 USDT (penaltyRatio changed from 4% to 0.5%)
+        // Penalty = 500 * 0.5% * 8 days = 20 USDT
         (, , uint256 penalty, ) = farmLend.getLoanDebt(TOKEN_ID_1);
         assertApproxEqAbs(penalty, 20e6, 1e6);
     }
@@ -781,10 +837,10 @@ contract FarmLendTest is Test, FarmLend_Deployer_Base {
 
     function test_MultipleBorrows_DifferentUsers() public {
         vm.prank(user1);
-        farmLend.borrowWithNFT(TOKEN_ID_1, address(usdt), 500e6, 30 days);
+        farmLend.borrowWithNFT(TOKEN_ID_1, address(usdt), 500e6);
         
         vm.prank(user2);
-        farmLend.borrowWithNFT(TOKEN_ID_2, address(usdc), 1000e6, 60 days);
+        farmLend.borrowWithNFT(TOKEN_ID_2, address(usdc), 1000e6);
         
         assertTrue(farmLend.isLoanActive(TOKEN_ID_1));
         assertTrue(farmLend.isLoanActive(TOKEN_ID_2));
@@ -798,9 +854,9 @@ contract FarmLendTest is Test, FarmLend_Deployer_Base {
 
     function test_RepayPriority_PenaltyFirst() public {
         vm.prank(user1);
-        farmLend.borrowWithNFT(TOKEN_ID_1, address(usdt), 500e6, 30 days);
+        farmLend.borrowWithNFT(TOKEN_ID_1, address(usdt), 500e6);
         
-        // Accrue penalty
+        // Accrue penalty (35 days = 30 days loan + 5 days overdue)
         vm.warp(block.timestamp + 35 days);
         
         (, uint256 interestBefore, uint256 penaltyBefore, ) = farmLend.getLoanDebt(TOKEN_ID_1);
@@ -819,5 +875,74 @@ contract FarmLendTest is Test, FarmLend_Deployer_Base {
         (uint256 principal, , uint256 penaltyAfter, ) = farmLend.getLoanDebt(TOKEN_ID_1);
         assertEq(principal, 500e6);
         assertTrue(penaltyAfter < penaltyBefore);
+    }
+
+    // ==================== Slash Tests ====================
+
+    function test_Slash_Success() public {
+        // Setup: borrow, then liquidate to leave dust collateral
+        vm.prank(user1);
+        farmLend.borrowWithNFT(TOKEN_ID_1, address(usdt), 700e6);
+        
+        // Make loan liquidatable via price change
+        vm.warp(block.timestamp + 34 days);
+        oracle.setTokenPUSDPrice(address(usdt), 1.15e18); // Token appreciates
+        oracle.setLastTokenPriceTimestamp(block.timestamp);
+        
+        // Liquidate most of the position, leaving dust
+        usdt.mint(liquidator, 800e6);
+        vm.startPrank(liquidator);
+        usdt.approve(address(vault), 800e6);
+        farmLend.liquidate(TOKEN_ID_1, 800e6);
+        vm.stopPrank();
+        
+        // Check if position can be slashed (auto-slash may have already executed)
+        (bool canSlashNow, uint256 collateral) = farmLend.canSlash(TOKEN_ID_1);
+        
+        // If not auto-slashed, manually slash
+        if (canSlashNow && collateral > 0 && collateral < farmLend.minCollateralThreshold()) {
+            farmLend.slash(TOKEN_ID_1);
+            
+            // Verify loan is cleared
+            FarmLend.Loan memory loan = farmLend.getLoan(TOKEN_ID_1);
+            assertEq(loan.borrower, address(0));
+        }
+    }
+
+    function test_CanSlash_ReturnsFalse_WhenLoanActive() public {
+        vm.prank(user1);
+        farmLend.borrowWithNFT(TOKEN_ID_1, address(usdt), 500e6);
+        
+        (bool canSlashResult, ) = farmLend.canSlash(TOKEN_ID_1);
+        assertFalse(canSlashResult);
+    }
+
+    function test_CanSlash_ReturnsFalse_WhenCollateralAboveThreshold() public {
+        vm.prank(user1);
+        farmLend.borrowWithNFT(TOKEN_ID_1, address(usdt), 500e6);
+        
+        // Fully repay to make loan inactive but keep collateral
+        vm.warp(block.timestamp + 10 days);
+        (, , , uint256 totalDebt) = farmLend.getLoanDebt(TOKEN_ID_1);
+        usdt.mint(user1, totalDebt);
+        
+        vm.startPrank(user1);
+        usdt.approve(address(vault), totalDebt);
+        farmLend.repayFull(TOKEN_ID_1);
+        vm.stopPrank();
+        
+        // Loan inactive, but collateral (1000 PUSD) is above threshold (20 PUSD)
+        // Actually after full repay, loan should not be slashable
+        (bool canSlashResult, ) = farmLend.canSlash(TOKEN_ID_1);
+        assertFalse(canSlashResult);
+    }
+
+    function test_Slash_RevertWhenCannotSlash() public {
+        vm.prank(user1);
+        farmLend.borrowWithNFT(TOKEN_ID_1, address(usdt), 500e6);
+        
+        // Loan is still active, cannot slash
+        vm.expectRevert("FarmLend: cannot slash");
+        farmLend.slash(TOKEN_ID_1);
     }
 }

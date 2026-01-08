@@ -38,11 +38,12 @@ abstract contract FarmLendStorage is IFarmLend {
     /// @notice Liquidation bonus in basis points (e.g. 300 = 3%)
     uint16 public liquidationBonus = 300; // 3% bonus to liquidators
 
-    /// @notice Penalty Ratio in basis points (e.g. 400 = 4%)
-    uint256 public penaltyRatio = 400;
+    /// @notice Penalty Ratio in basis points per day (e.g. 50 = 0.5% per day)
+    uint256 public penaltyRatio = 50;
 
-    /// @notice Supported loan duration by setting interest ratios
-    mapping(uint256 => uint256) public loanDurationInterestRatios;
+    /// @notice Annual interest rate in basis points (e.g. 1000 = 10% APR)
+    /// @dev Interest is calculated per second using simple interest
+    uint256 public annualInterestRate = 1000; // 10% APR default
 
     /// @notice Grace period after due date before admin can seize NFT
     uint256 public loanGracePeriod = 7 days; // 7 days grace period after due date
@@ -50,6 +51,14 @@ abstract contract FarmLendStorage is IFarmLend {
     /// @notice Grace period after due date before penalty starts accruing
     uint256 public penaltyGracePeriod = 3 days; // 3 days grace period before penalty
 
+    /// @notice Minimum collateral threshold for slash (dust threshold)
+    /// @dev If remaining collateral < this value after liquidation, allow full slash and burn NFT
+    uint256 public minCollateralThreshold = 20e6; // 20 PUSD default
+
+    /// @notice Minimum borrow amount in PUSD equivalent (6 decimals)
+    /// @dev Prevents dust loans that may become problematic after liquidation
+    uint256 public minBorrowAmount = 20e6; // 20 PUSD worth minimum
+
     // PlaceHolder
-    uint256[49] private __gap;
+    uint256[47] private __gap;
 }

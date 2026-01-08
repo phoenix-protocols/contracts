@@ -9,9 +9,8 @@ interface IFarmLend {
         uint256 remainingCollateralAmount; // in PUSD
         address debtToken; // USDT / USDC etc.
         uint256 borrowedAmount; // Principal amount
-        uint256 loanDuration; // Loan duration in seconds
         uint256 startTime; // Loan start timestamp
-        uint256 endTime; // Loan due date
+        uint256 endTime; // Loan due date (= NFT unlock time)
         uint256 lastInterestAccrualTime; // timestamp of last interest accrual
         uint256 accruedInterest; // interest accrued but not yet settled
         uint256 lastPenaltyAccrualTime; // timestamp of last penalty accrual
@@ -42,6 +41,10 @@ interface IFarmLend {
         uint256 timestamp
     );
     event CollateralClaimed(uint256 indexed tokenId, address indexed borrower, uint256 remainingCollateral);
+    event MinCollateralThresholdUpdated(uint256 oldValue, uint256 newValue);
+    event MinBorrowAmountUpdated(uint256 oldValue, uint256 newValue);
+    event AnnualInterestRateUpdated(uint256 oldValue, uint256 newValue);
+    event CollateralSlashed(uint256 indexed tokenId, address indexed borrower, uint256 slashedAmount);
 
     // -------- View functions --------
 
@@ -75,7 +78,8 @@ interface IFarmLend {
     function setPenaltyRatio(uint256 _penaltyRatio) external;
 
     /// @notice Update loan duration interest ratios
-    function setLoanDurationInterestRatios(uint256 loanDuration, uint256 _loanDurationInterestRatios) external;
+    /// @notice Update annual interest rate in basis points
+    function setAnnualInterestRate(uint256 _annualInterestRate) external;
 
     /// @notice Update loan grace period in seconds
     function setLoanGracePeriod(uint256 _loanGracePeriod) external;
@@ -83,7 +87,8 @@ interface IFarmLend {
     // -------- Core user actions --------
 
     /// @notice Borrow USDT/USDC based on staked PUSD amount represented by NFT
-    function borrowWithNFT(uint256 tokenId, address debtToken, uint256 amount, uint256 loanDuration) external;
+    /// @dev Loan due date is set to NFT unlock time
+    function borrowWithNFT(uint256 tokenId, address debtToken, uint256 amount) external;
 
     /// @notice Repay loan (full or partial)
     function repay(uint256 tokenId, uint256 amount) external;
@@ -96,6 +101,12 @@ interface IFarmLend {
 
     /// @notice Liquidate an under-collateralized loan backed by a staking NFT
     function liquidate(uint256 tokenId, uint256 maxRepayAmount) external;
+
+    /// @notice Slash dust collateral when loan is inactive and collateral is below threshold
+    function slash(uint256 tokenId) external;
+
+    /// @notice Check if a position can be slashed
+    function canSlash(uint256 tokenId) external view returns (bool canSlash, uint256 collateral);
 
     /// @notice Claim remaining collateral after loan is fully liquidated (debt = 0)
     function claimCollateral(uint256 tokenId) external;

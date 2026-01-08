@@ -82,6 +82,28 @@ contract NFTManager is Initializable, ERC721BurnableUpgradeable, ERC721Enumerabl
         emit FarmUpdated(farm_);
     }
 
+    /**
+     * @notice Set the Vault contract address
+     * @dev Used to exclude vault transfers from Farm tokenIds sync
+     * @param vault_ The Vault contract address
+     */
+    function setVault(address vault_) external onlyAdmin {
+        require(vault_ != address(0), "NFTManager: invalid vault address");
+        vault = vault_;
+        emit VaultUpdated(vault_);
+    }
+
+    /**
+     * @notice Set the FarmLend contract address
+     * @dev FarmLend needs permission to burn NFTs on slash
+     * @param farmLend_ The FarmLend contract address
+     */
+    function setFarmLend(address farmLend_) external onlyAdmin {
+        require(farmLend_ != address(0), "NFTManager: invalid farmLend address");
+        farmLend = farmLend_;
+        emit FarmLendUpdated(farmLend_);
+    }
+
     // ---------- Core: Mint Stake NFT ----------
     /**
      * @notice Mint a new NFT representing a staking record.
@@ -185,7 +207,13 @@ contract NFTManager is Initializable, ERC721BurnableUpgradeable, ERC721Enumerabl
     }
 
     // ---------- Burn ----------
-    function burn(uint256 tokenId) public override onlyEditor {
+    /// @notice Burn a stake NFT
+    /// @dev Can be called by editors (Farm) or FarmLend for slash
+    function burn(uint256 tokenId) public override {
+        require(
+            hasRole(METADATA_EDITOR_ROLE, _msgSender()) || _msgSender() == owner() || _msgSender() == farmLend,
+            "NFTManager: not authorized to burn"
+        );
         _requireOwned(tokenId);
         // Bypass ERC721 approval check since we have role-based access control
         _update(address(0), tokenId, address(0));
@@ -229,8 +257,22 @@ contract NFTManager is Initializable, ERC721BurnableUpgradeable, ERC721Enumerabl
     }
 
     /// @dev Override required by ERC721Enumerable
+    /// @notice Also notifies Farm contract when NFT is transferred to sync tokenIds arrays
     function _update(address to, uint256 tokenId, address auth) internal override(ERC721Upgradeable, ERC721EnumerableUpgradeable) returns (address) {
-        return super._update(to, tokenId, auth);
+        // super._update returns the previous owner (before transfer)
+        address from = super._update(to, tokenId, auth);
+        
+        // Notify Farm when NFT is transferred between regular users
+        // Excluded cases:
+        // - from == address(0): minting
+        // - to == address(0): burning  
+        // - from == vault or to == vault: lending collateral operations (handled by FarmLend)
+        if (farm != address(0) && from != address(0) && to != address(0) 
+            && from != vault && to != vault) {
+            IFarm(farm).onNFTTransfer(from, to, tokenId);
+        }
+        
+        return from;
     }
 
     /// @dev Override required by ERC721Enumerable

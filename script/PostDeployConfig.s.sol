@@ -10,6 +10,7 @@ import {FarmLend} from "src/Farm/FarmLend.sol";
 import {PUSDOracleUpgradeable} from "src/Oracle/PUSDOracle.sol";
 import {ReferralRewardManager} from "src/Referral/ReferralRewardManager.sol";
 import {yPUSD} from "src/token/yPUSD/yPUSD.sol";
+import {NFTManager} from "src/token/NFTManager/NFTManager.sol";
 
 /**
  * @title PostDeployConfig
@@ -32,6 +33,7 @@ contract PostDeployConfig is Script {
     address public oracle;
     address public referralManager;
     address public ypusd;
+    address public nftManager;
 
     // Role addresses (support multiple addresses)
     address public relayer;
@@ -46,6 +48,7 @@ contract PostDeployConfig is Script {
         oracle = vm.envAddress("ORACLE");
         referralManager = vm.envOr("REFERRAL_MANAGER", address(0));
         ypusd = vm.envOr("YPUSD", address(0));
+        nftManager = vm.envOr("NFT_MANAGER", address(0));
 
         // Load role addresses (support comma-separated multiple addresses)
         relayer = vm.envOr("RELAYER", address(0));
@@ -106,10 +109,13 @@ contract PostDeployConfig is Script {
         // 8. Configure FarmLend Parameters (allowed debt tokens, ratios)
         _configureFarmLendParams();
 
-        // 9. Configure Bridge Chains
+        // 9. Configure NFTManager (set vault address for transfer exclusion)
+        _configureNFTManager();
+
+        // 10. Configure Bridge Chains
         _configureBridgeChains();
 
-        // 10. Configure Roles (BRIDGE_ROLE, etc.)
+        // 11. Configure Roles (BRIDGE_ROLE, etc.)
         _configureRoles();
 
         vm.stopBroadcast();
@@ -400,20 +406,20 @@ contract PostDeployConfig is Script {
         console.log("  Liquidation Ratio:", liquidationRatio, "bps");
         console.log("  Target CR:", targetCR, "bps");
 
-        // 3. Set loan duration interest ratios (optional - defaults set in initialize)
-        // Loan periods: 7, 31, 89, 181 days
-        uint256 interest7d = vm.envOr("FARMLEND_INTEREST_7D", uint256(30)); // 0.3%
-        uint256 interest31d = vm.envOr("FARMLEND_INTEREST_31D", uint256(110)); // 1.1%
-        uint256 interest89d = vm.envOr("FARMLEND_INTEREST_89D", uint256(250)); // 2.5%
-        uint256 interest181d = vm.envOr("FARMLEND_INTEREST_181D", uint256(450)); // 4.5%
-        farmLendContract.setLoanDurationInterestRatios(7 days, interest7d);
-        farmLendContract.setLoanDurationInterestRatios(31 days, interest31d);
-        farmLendContract.setLoanDurationInterestRatios(89 days, interest89d);
-        farmLendContract.setLoanDurationInterestRatios(181 days, interest181d);
-        console.log("  Interest 7d:", interest7d, "bps");
-        console.log("  Interest 31d:", interest31d, "bps");
-        console.log("  Interest 89d:", interest89d, "bps");
-        console.log("  Interest 181d:", interest181d, "bps");
+        // 3. Set annual interest rate (optional - default 1000 bps = 10% APR)
+        uint256 annualRate = vm.envOr("FARMLEND_ANNUAL_INTEREST_RATE", uint256(1460)); // 14.6% APR
+        farmLendContract.setAnnualInterestRate(annualRate);
+        console.log("  Annual Interest Rate:", annualRate, "bps");
+
+        // 4. Set minimum borrow amount (optional - default 20 PUSD)
+        uint256 minBorrow = vm.envOr("FARMLEND_MIN_BORROW", uint256(20e6)); // 20 PUSD
+        farmLendContract.setMinBorrowAmount(minBorrow);
+        console.log("  Min Borrow Amount:", minBorrow, "wei");
+
+        // 5. Set minimum collateral threshold for slash (optional - default 20 PUSD)
+        uint256 minCollateral = vm.envOr("FARMLEND_MIN_COLLATERAL_THRESHOLD", uint256(20e6)); // 20 PUSD
+        farmLendContract.setMinCollateralThreshold(minCollateral);
+        console.log("  Min Collateral Threshold:", minCollateral, "wei");
 
         // 4. Set PUSD Oracle (CRITICAL - needed for price feeds)
         if (oracle != address(0)) {
@@ -446,6 +452,37 @@ contract PostDeployConfig is Script {
         uint16 liquidationBonus = uint16(vm.envOr("FARMLEND_LIQUIDATION_BONUS", uint256(300)));
         farmLendContract.setLiquidationBonus(liquidationBonus);
         console.log("  Liquidation Bonus:", liquidationBonus, "bps");
+    }
+
+    // ════════════════════════════════════════════════════════════════════════
+    // NFTMANAGER - Set Vault Address for Transfer Exclusion
+    // ════════════════════════════════════════════════════════════════════════
+    function _configureNFTManager() internal {
+        console.log("--- Configuring NFTManager ---");
+
+        if (nftManager == address(0)) {
+            console.log("  WARNING: NFT_MANAGER not set, skipping");
+            return;
+        }
+
+        NFTManager nftManagerContract = NFTManager(nftManager);
+
+        // Set vault address so NFT transfers to/from vault (for lending collateral)
+        // are excluded from Farm tokenIds sync
+        if (vault != address(0)) {
+            nftManagerContract.setVault(vault);
+            console.log("  Vault set to:", vault);
+        } else {
+            console.log("  WARNING: VAULT not set!");
+        }
+
+        // Set farmLend address so FarmLend can burn NFTs on slash
+        if (farmLend != address(0)) {
+            nftManagerContract.setFarmLend(farmLend);
+            console.log("  FarmLend set to:", farmLend);
+        } else {
+            console.log("  WARNING: FARM_LEND not set!");
+        }
     }
 
     // ════════════════════════════════════════════════════════════════════════

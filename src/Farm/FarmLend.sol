@@ -43,13 +43,12 @@ contract FarmLend is Initializable, AccessControlUpgradeable, ReentrancyGuardUpg
         liquidationRatio = 12500; // 125%
         targetCollateralRatio = 13000; // 130%
         liquidationBonus = 300; // 3%
-        penaltyRatio = 50; // 0.5% per day (was 4%, too aggressive)
+        penaltyRatio = 50; // 0.5% per day
         loanGracePeriod = 7 days;
         penaltyGracePeriod = 3 days;
-        
-        // Set default loan duration interest ratios
-        loanDurationInterestRatios[30 days] = 110; // 1.1% for 30 days
-        loanDurationInterestRatios[60 days] = 200; // 2% for 60 days
+        annualInterestRate = 1460; // 14.6% APR
+        minBorrowAmount = 20e6; // 20 PUSD minimum
+        minCollateralThreshold = 20e6; // 20 PUSD dust threshold
     }
 
     // ---------- Admin configuration ----------
@@ -111,9 +110,12 @@ contract FarmLend is Initializable, AccessControlUpgradeable, ReentrancyGuardUpg
         penaltyRatio = _penaltyRatio;
     }
 
-    /// @notice Set interest ratios for loan durations to make loan durations valid
-    function setLoanDurationInterestRatios(uint256 loanDuration, uint256 _loanDurationInterestRatios) external onlyRole(OPERATOR_ROLE) {
-        loanDurationInterestRatios[loanDuration] = _loanDurationInterestRatios;
+    /// @notice Update annual interest rate in basis points (e.g. 1000 = 10% APR)
+    function setAnnualInterestRate(uint256 _annualInterestRate) external onlyRole(OPERATOR_ROLE) {
+        require(_annualInterestRate <= 5000, "FarmLend: rate too high"); // max 50% APR
+        uint256 old = annualInterestRate;
+        annualInterestRate = _annualInterestRate;
+        emit AnnualInterestRateUpdated(old, _annualInterestRate);
     }
 
     /// @notice Update loan grace period in seconds
@@ -131,6 +133,24 @@ contract FarmLend is Initializable, AccessControlUpgradeable, ReentrancyGuardUpg
     function setLiquidationBonus(uint16 _liquidationBonus) external onlyRole(OPERATOR_ROLE) {
         require(_liquidationBonus <= 1000, "FarmLend: bonus too high"); // max 10%
         liquidationBonus = _liquidationBonus;
+    }
+
+    /// @notice Update minimum collateral threshold for slash (dust threshold)
+    /// @param _minCollateralThreshold New threshold in PUSD (6 decimals)
+    function setMinCollateralThreshold(uint256 _minCollateralThreshold) external onlyRole(OPERATOR_ROLE) {
+        require(_minCollateralThreshold <= 100e6, "FarmLend: threshold too high"); // max 100 PUSD
+        uint256 old = minCollateralThreshold;
+        minCollateralThreshold = _minCollateralThreshold;
+        emit MinCollateralThresholdUpdated(old, _minCollateralThreshold);
+    }
+
+    /// @notice Update minimum borrow amount
+    /// @param _minBorrowAmount New minimum in PUSD equivalent (6 decimals)
+    function setMinBorrowAmount(uint256 _minBorrowAmount) external onlyRole(OPERATOR_ROLE) {
+        require(_minBorrowAmount <= 1000e6, "FarmLend: min borrow too high"); // max 1000 PUSD
+        uint256 old = minBorrowAmount;
+        minBorrowAmount = _minBorrowAmount;
+        emit MinBorrowAmountUpdated(old, _minBorrowAmount);
     }
 
     // ---------- View helpers ----------
@@ -356,6 +376,7 @@ contract FarmLend is Initializable, AccessControlUpgradeable, ReentrancyGuardUpg
     }
 
     /// @notice View current accrued interest (including from lastAccrual to now)
+    /// @dev Uses simple interest based on annual rate: interest = principal * rate * time / (10000 * 365 days)
     function _currentInterestView(Loan storage loan) internal view returns (uint256) {
         if (!loan.active) return 0;
 
@@ -369,10 +390,10 @@ contract FarmLend is Initializable, AccessControlUpgradeable, ReentrancyGuardUpg
             return interest;
         }
 
-        uint256 interestRatio = loanDurationInterestRatios[loan.loanDuration];
-
         uint256 timeElapsed = block.timestamp - from;
-        uint256 interestDelta = (loan.borrowedAmount * interestRatio * timeElapsed) / (10000 * loan.loanDuration);
+        
+        // Simple interest: principal * annualRate * timeElapsed / (10000 * 365 days)
+        uint256 interestDelta = (loan.borrowedAmount * annualInterestRate * timeElapsed) / (10000 * 365 days);
 
         return interest + interestDelta;
     }
@@ -411,11 +432,11 @@ contract FarmLend is Initializable, AccessControlUpgradeable, ReentrancyGuardUpg
     // ---------- Core: borrow using NFT stake as collateral ----------
 
     /// @notice Borrow USDT/USDC based on staked PUSD amount represented by NFT
+    /// @dev Loan due date is set to NFT unlock time (startTime + lockPeriod)
     /// @param tokenId NFT token ID used as collateral
     /// @param debtToken Address of the debt token (must be in allowedDebtTokens)
     /// @param amount Amount to borrow (cannot exceed maxBorrowable)
-    /// @param loanDuration Loan duration in seconds
-    function borrowWithNFT(uint256 tokenId, address debtToken, uint256 amount, uint256 loanDuration) external nonReentrant {
+    function borrowWithNFT(uint256 tokenId, address debtToken, uint256 amount) external nonReentrant {
         require(allowedDebtTokens[debtToken], "FarmLend: debt token not allowed");
         require(amount > 0, "FarmLend: zero amount");
 
@@ -431,17 +452,27 @@ contract FarmLend is Initializable, AccessControlUpgradeable, ReentrancyGuardUpg
         Loan storage loan = loans[tokenId];
         require(!loan.active, "FarmLend: loan already active");
 
-        // 4. Ensure loan duration is valid, by checking if it exists in loanDurationInterestRatios
-        require(loanDurationInterestRatios[loanDuration] > 0, "FarmLend: invalid loan duration");
+        // 4. Compute NFT unlock time and ensure it's in the future
+        uint256 nftUnlockTime = record.startTime + record.lockPeriod;
+        require(nftUnlockTime > block.timestamp, "FarmLend: NFT already unlocked");
 
         // 5. Compute max borrowable
         uint256 maxAmount = maxBorrowable(tokenId, debtToken);
         require(amount <= maxAmount, "FarmLend: amount exceeds max borrowable");
 
-        // 6. Transfer lending asset from vault to borrower
+        // 6. Check minimum borrow amount (convert to PUSD equivalent)
+        //    minBorrowAmount is in PUSD (6 decimals)
+        //    amount is in debtToken decimals
+        //    tokenPrice = PUSD per 1 debtToken (1e18)
+        (uint256 tokenPrice, ) = pusdOracle.getTokenPUSDPrice(debtToken);
+        uint8 debtDecimals = IERC20Metadata(debtToken).decimals();
+        uint256 borrowValuePUSD = (amount * tokenPrice) / (10 ** debtDecimals) / 1e12; // convert to PUSD 6 decimals
+        require(borrowValuePUSD >= minBorrowAmount, "FarmLend: borrow amount too small");
+
+        // 7. Transfer lending asset from vault to borrower
         vault.withdrawTo(msg.sender, debtToken, amount);
 
-        // 7. Move NFT to the vault as collateral
+        // 8. Move NFT to the vault as collateral
         //    User must approve the contract to transfer this NFT
         require(
             nftManager.getApproved(tokenId) == address(this) || nftManager.isApprovedForAll(msg.sender, address(this)),
@@ -449,18 +480,17 @@ contract FarmLend is Initializable, AccessControlUpgradeable, ReentrancyGuardUpg
         );
         nftManager.safeTransferFrom(msg.sender, address(vault), tokenId);
 
-        // 8. Record borrower's nft tokenId
+        // 9. Record borrower's nft tokenId
         tokenIdsForDebt[msg.sender].push(tokenId);
 
-        // 9. Record loan information
+        // 10. Record loan information (endTime = NFT unlock time)
         loan.active = true;
         loan.borrower = msg.sender;
         loan.remainingCollateralAmount = record.amount;
         loan.debtToken = debtToken;
         loan.borrowedAmount = amount;
         loan.startTime = block.timestamp;
-        loan.endTime = block.timestamp + loanDuration;
-        loan.loanDuration = loanDuration;
+        loan.endTime = nftUnlockTime;
         loan.lastInterestAccrualTime = block.timestamp;
         loan.accruedInterest = 0;
         loan.lastPenaltyAccrualTime = 0; // No penalty yet
@@ -581,6 +611,7 @@ contract FarmLend is Initializable, AccessControlUpgradeable, ReentrancyGuardUpg
     }
 
     /// @notice Accrue interest for a loan (internal use)
+    /// @dev Uses simple interest based on annual rate
     function _accrueInterest(Loan storage loan) internal {
         if (!loan.active) return;
 
@@ -590,13 +621,12 @@ contract FarmLend is Initializable, AccessControlUpgradeable, ReentrancyGuardUpg
             from = loan.startTime;
         }
 
-        uint256 interestRatio = loanDurationInterestRatios[loan.loanDuration];
-
         if (block.timestamp <= from) return;
 
         uint256 timeElapsed = block.timestamp - from;
 
-        uint256 interestAccrued = (loan.borrowedAmount * interestRatio * timeElapsed) / (10000 * loan.loanDuration);
+        // Simple interest: principal * annualRate * timeElapsed / (10000 * 365 days)
+        uint256 interestAccrued = (loan.borrowedAmount * annualInterestRate * timeElapsed) / (10000 * 365 days);
 
         loan.accruedInterest += interestAccrued;
         loan.lastInterestAccrualTime = block.timestamp;
@@ -790,7 +820,8 @@ contract FarmLend is Initializable, AccessControlUpgradeable, ReentrancyGuardUpg
         }
 
         // 12. Update collateral
-        loan.remainingCollateralAmount = C - rewardPUSD;
+        uint256 newCollateral = C - rewardPUSD;
+        loan.remainingCollateralAmount = newCollateral;
 
         // 13. Check if loan is fully paid off
         if (loan.borrowedAmount == 0 && loan.accruedInterest == 0 && loan.accruedPenalty == 0) {
@@ -803,8 +834,11 @@ contract FarmLend is Initializable, AccessControlUpgradeable, ReentrancyGuardUpg
         // 15. Vault pays PUSD reward to liquidator
         vault.withdrawPUSDTo(msg.sender, rewardPUSD);
 
+        // 16. Auto-slash if conditions met (dust cleanup in same tx)
+        _slash(tokenId);
+
         //------------------------------------------------------------
-        // 16. Emit event with detailed liquidation info
+        // 17. Emit event with detailed liquidation info
         //------------------------------------------------------------
         emit Liquidated(
             tokenId,
@@ -819,6 +853,60 @@ contract FarmLend is Initializable, AccessControlUpgradeable, ReentrancyGuardUpg
             loan.remainingCollateralAmount, // Remaining collateral in PUSD (6 decimals)
             block.timestamp
         );
+    }
+
+    /// @notice Slash dust collateral when loan is inactive and collateral is below threshold
+    /// @dev Anyone can call this to clean up dust positions. Dust goes to protocol treasury.
+    ///      Caller receives no reward - this is a public good function to clean up the system.
+    /// @param tokenId NFT token ID to slash
+    function slash(uint256 tokenId) external nonReentrant {
+        bool slashed = _slash(tokenId);
+        require(slashed, "FarmLend: cannot slash");
+    }
+
+    /// @notice Internal slash logic - checks conditions and executes if met
+    /// @return slashed Whether slash was executed
+    function _slash(uint256 tokenId) internal returns (bool slashed) {
+        Loan storage loan = loans[tokenId];
+        
+        // Check all slash conditions
+        if (loan.active) return false;  // Loan must be inactive
+        if (loan.borrower == address(0)) return false;  // Already slashed or no loan
+        
+        uint256 collateral = loan.remainingCollateralAmount;
+        if (collateral == 0) return false;  // No collateral
+        if (collateral >= minCollateralThreshold) return false;  // Above threshold
+        
+        address borrower = loan.borrower;
+        
+        // Clear entire loan record
+        delete loans[tokenId];
+        
+        // Remove from borrower's tokenId list
+        _removeTokenIdFromDebt(borrower, tokenId);
+        
+        // Burn the NFT
+        vault.releaseNFT(tokenId, address(this));
+        nftManager.burn(tokenId);
+        
+        // Remove tokenId from original borrower's Farm tokenIds
+        IFarm(farm).onNFTBurn(borrower, tokenId);
+        
+        emit CollateralSlashed(tokenId, borrower, collateral);
+        return true;
+    }
+
+    /// @notice Check if a position can be slashed
+    /// @param tokenId NFT token ID
+    /// @return canSlash Whether the position can be slashed
+    /// @return collateral Current collateral amount
+    function canSlash(uint256 tokenId) external view returns (bool canSlash, uint256 collateral) {
+        Loan storage loan = loans[tokenId];
+        collateral = loan.remainingCollateralAmount;
+        canSlash = !loan.active 
+            && loan.borrower != address(0)
+            && collateral > 0 
+            && collateral < minCollateralThreshold;
     }
 
     /// @notice Claim remaining collateral after loan is fully liquidated (debt = 0)
@@ -839,9 +927,8 @@ contract FarmLend is Initializable, AccessControlUpgradeable, ReentrancyGuardUpg
         
         uint256 remainingCollateral = loan.remainingCollateralAmount;
         
-        // Clear the loan record
-        loan.remainingCollateralAmount = 0;
-        loan.borrower = address(0);
+        // Clear entire loan record
+        delete loans[tokenId];
         
         // Remove from borrower's tokenId list
         _removeTokenIdFromDebt(msg.sender, tokenId);

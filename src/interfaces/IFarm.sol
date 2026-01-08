@@ -76,6 +76,9 @@ interface IFarm {
     event BridgeMessengerUpdated(address indexed oldMessenger, address indexed newMessenger);
     event BridgeChainSupportUpdated(uint256[] chainIds, bool[] isSupported);
 
+    // NFT transfer tracking event
+    event StakeNFTTransferred(address indexed from, address indexed to, uint256 indexed tokenId);
+
     /* ========== Core External Functions ========== */
 
     function depositAsset(address asset, uint256 amount) external;
@@ -109,6 +112,10 @@ interface IFarm {
     function setFeeRates(uint256 _depositFeeRate, uint256 _withdrawFeeRate, uint256 _bridgeFeeRate) external;
 
     function updateByFarmLend(uint256 tokenId, uint256 pusdAmount) external;
+
+    function onNFTTransfer(address from, address to, uint256 tokenId) external;
+
+    function onNFTBurn(address owner, uint256 tokenId) external;
 
     function pause() external;
 
