@@ -31,6 +31,7 @@ interface IFarm {
         uint16 rewardMultiplier;
         bool active;
         uint256 currentReward;
+        uint256 pendingReward;
         uint256 unlockTime;
         bool isUnlocked;
         uint256 effectiveAPY;

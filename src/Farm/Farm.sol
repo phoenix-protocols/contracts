@@ -701,6 +701,7 @@ contract FarmUpgradeable is Initializable, AccessControlUpgradeable, ReentrancyG
                 rewardMultiplier: record.rewardMultiplier,
                 active: record.active,
                 currentReward: record.active ? _calculateStakeReward(record) : 0,
+                pendingReward: record.pendingReward,
                 unlockTime: _unlockTime,
                 isUnlocked: block.timestamp >= _unlockTime,
                 effectiveAPY: (uint256(currentAPY) * uint256(record.rewardMultiplier)) / 10000

@@ -880,6 +880,7 @@ contract FarmLend is Initializable, AccessControlUpgradeable, ReentrancyGuardUpg
     }
 
     /// @notice Internal slash logic - checks conditions and executes if met
+    /// @dev Distributes any pending staking rewards to borrower before burning NFT
     /// @return slashed Whether slash was executed
     function _slash(uint256 tokenId) internal returns (bool slashed) {
         Loan storage loan = loans[tokenId];
@@ -893,6 +894,13 @@ contract FarmLend is Initializable, AccessControlUpgradeable, ReentrancyGuardUpg
         if (collateral >= minCollateralThreshold) return false;  // Above threshold
         
         address borrower = loan.borrower;
+        
+        // Distribute pending staking rewards to borrower before burning NFT
+        // This ensures user doesn't lose their earned rewards due to slash
+        IFarm.StakeRecord memory record = nftManager.getStakeRecord(tokenId);
+        if (record.pendingReward > 0) {
+            vault.distributeReward(borrower, record.pendingReward);
+        }
         
         // Clear entire loan record
         delete loans[tokenId];
