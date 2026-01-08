@@ -13,6 +13,7 @@ import {FarmUpgradeable} from "src/Farm/Farm.sol";
 import {FarmLend} from "src/Farm/FarmLend.sol";
 import {PUSDOracleUpgradeable} from "src/Oracle/PUSDOracle.sol";
 import {ReferralRewardManager} from "src/Referral/ReferralRewardManager.sol";
+import {MessageManager} from "src/Bridge/MessageManager.sol";
 import {ERC1967Proxy} from "@openzeppelin/contracts/proxy/ERC1967/ERC1967Proxy.sol";
 import {IERC20} from "@openzeppelin/contracts/token/ERC20/IERC20.sol";
 
@@ -32,6 +33,7 @@ import {IERC20} from "@openzeppelin/contracts/token/ERC20/IERC20.sol";
  * 6. Farm (depends on PUSD, yPUSD, Vault)
  * 7. FarmLend (depends on NFTManager, Vault, PUSDOracle, Farm)
  * 8. ReferralRewardManager (depends on yPUSD)
+ * 9. MessageManager (depends on Farm)
  */
 contract FullDeploy is Script {
     // Deployed contracts
@@ -43,6 +45,7 @@ contract FullDeploy is Script {
     FarmLend public farmLend;
     PUSDOracleUpgradeable public oracle;
     ReferralRewardManager public referralManager;
+    MessageManager public messageManager;
 
     // Base salt for deterministic deployment
     bytes32 public baseSalt;
@@ -106,6 +109,10 @@ contract FullDeploy is Script {
         referralManager = _deployReferral(admin, address(ypusd));
         console.log("ReferralRewardManager deployed at:", address(referralManager));
 
+        // 9. Deploy MessageManager (depends on Farm as poolManager)
+        messageManager = _deployMessageManager(admin, address(farm));
+        console.log("MessageManager deployed at:", address(messageManager));
+
         // ========== Phase 4: Configure Cross-references ==========
         console.log("");
         console.log("--- Phase 4: Configuring Cross-references ---");
@@ -131,6 +138,10 @@ contract FullDeploy is Script {
         // Grant MINTER_ROLE to Farm
         pusd.grantRole(pusd.MINTER_ROLE(), address(farm));
         console.log("PUSD.grantRole(MINTER_ROLE, farm) done");
+
+        // Farm -> MessageManager (setBridgeMessenger)
+        farm.setBridgeMessenger(address(messageManager));
+        console.log("Farm.setBridgeMessenger done");
         
         vm.stopBroadcast();
 
@@ -145,6 +156,7 @@ contract FullDeploy is Script {
         console.log("Farm:           ", address(farm));
         console.log("FarmLend:       ", address(farmLend));
         console.log("ReferralManager:", address(referralManager));
+        console.log("MessageManager: ", address(messageManager));
         console.log("");
         console.log("=== Post-deployment Actions Required ===");
         console.log("1. Add supported assets to Vault: vault.addAsset(token, name)");
@@ -267,5 +279,12 @@ contract FullDeploy is Script {
         ERC1967Proxy proxy = new ERC1967Proxy{salt: proxySalt}(address(impl), initData);
         
         return ReferralRewardManager(address(proxy));
+    }
+
+    function _deployMessageManager(address admin_, address poolManager_) internal returns (MessageManager) {
+        // MessageManager is not upgradeable, deploy directly with CREATE2
+        bytes32 salt = _implSalt("MessageManager");
+        MessageManager mgr = new MessageManager{salt: salt}(admin_, poolManager_);
+        return mgr;
     }
 }

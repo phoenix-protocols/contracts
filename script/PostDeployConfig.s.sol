@@ -33,10 +33,10 @@ contract PostDeployConfig is Script {
     address public referralManager;
     address public ypusd;
 
-    // Role addresses
+    // Role addresses (support multiple addresses)
     address public relayer;
-    address public keeper;
-    address public operator;
+    address[] public keepers;
+    address[] public operators;
 
     function run() external {
         // Load deployed addresses
@@ -47,10 +47,10 @@ contract PostDeployConfig is Script {
         referralManager = vm.envOr("REFERRAL_MANAGER", address(0));
         ypusd = vm.envOr("YPUSD", address(0));
 
-        // Load role addresses
+        // Load role addresses (support comma-separated multiple addresses)
         relayer = vm.envOr("RELAYER", address(0));
-        keeper = vm.envOr("KEEPER", address(0));
-        operator = vm.envOr("OPERATOR", address(0));
+        keepers = _parseAddresses(vm.envOr("KEEPER", string("")));
+        operators = _parseAddresses(vm.envOr("OPERATOR", string("")));
 
         string memory configType = vm.envOr("CONFIG_TYPE", string("main"));
 
@@ -97,16 +97,19 @@ contract PostDeployConfig is Script {
         // 5. Configure Fee Rates
         _configureFeeRates();
 
-        // 6. Configure FarmLend Address in Farm
+        // 6. Configure System Config (minDeposit, minLock, maxStakes, etc.)
+        _configureSystemConfig();
+
+        // 7. Configure FarmLend Address in Farm
         _configureFarmLend();
 
-        // 7. Configure FarmLend Parameters (allowed debt tokens, ratios)
+        // 8. Configure FarmLend Parameters (allowed debt tokens, ratios)
         _configureFarmLendParams();
 
-        // 8. Configure Bridge Chains
+        // 9. Configure Bridge Chains
         _configureBridgeChains();
 
-        // 9. Configure Roles (BRIDGE_ROLE, etc.)
+        // 10. Configure Roles (BRIDGE_ROLE, etc.)
         _configureRoles();
 
         vm.stopBroadcast();
@@ -293,6 +296,43 @@ contract PostDeployConfig is Script {
         console.log("  Deposit:", depositFee, "bps");
         console.log("  Withdraw:", withdrawFee, "bps");
         console.log("  Bridge:", bridgeFee, "bps");
+    }
+
+    // ════════════════════════════════════════════════════════════════════════
+    // FARM - System Config (minDeposit, minLock, maxStakes, maxAPYHistory)
+    // ════════════════════════════════════════════════════════════════════════
+    function _configureSystemConfig() internal {
+        console.log("--- Configuring System Config ---");
+
+        FarmUpgradeable farmContract = FarmUpgradeable(farm);
+
+        // configType 0: minDepositAmount (PUSD wei, e.g., 10 PUSD = 10000000)
+        uint256 minDeposit = vm.envOr("MIN_DEPOSIT", uint256(0));
+        if (minDeposit > 0) {
+            farmContract.updateSystemConfig(0, minDeposit);
+            console.log("  minDepositAmount:", minDeposit, "wei");
+        }
+
+        // configType 1: minLockAmount (PUSD wei, e.g., 100 PUSD = 100000000)
+        uint256 minLock = vm.envOr("MIN_LOCK", uint256(0));
+        if (minLock > 0) {
+            farmContract.updateSystemConfig(1, minLock);
+            console.log("  minLockAmount:", minLock, "wei");
+        }
+
+        // configType 2: maxStakesPerUser (10-65535)
+        uint256 maxStakes = vm.envOr("MAX_STAKES_PER_USER", uint256(0));
+        if (maxStakes > 0) {
+            farmContract.updateSystemConfig(2, maxStakes);
+            console.log("  maxStakesPerUser:", maxStakes);
+        }
+
+        // configType 3: maxAPYHistory (50-65535)
+        uint256 maxAPYHistory = vm.envOr("MAX_APY_HISTORY", uint256(0));
+        if (maxAPYHistory > 0) {
+            farmContract.updateSystemConfig(3, maxAPYHistory);
+            console.log("  maxAPYHistory:", maxAPYHistory);
+        }
     }
 
     // ════════════════════════════════════════════════════════════════════════
@@ -505,19 +545,21 @@ contract PostDeployConfig is Script {
             }
         }
 
-        // 3. yPUSD: Grant YIELD_INJECTOR_ROLE to keeper (for accrueYield)
-        if (ypusd != address(0) && keeper != address(0)) {
+        // 3. yPUSD: Grant YIELD_INJECTOR_ROLE to keepers (for accrueYield)
+        if (ypusd != address(0) && keepers.length > 0) {
             yPUSD ypusdContract = yPUSD(ypusd);
             bytes32 yieldInjectorRole = keccak256("YIELD_INJECTOR_ROLE");
-            if (!ypusdContract.hasRole(yieldInjectorRole, keeper)) {
-                ypusdContract.grantRole(yieldInjectorRole, keeper);
-                console.log("  yPUSD.YIELD_INJECTOR_ROLE granted to keeper:", keeper);
-            } else {
-                console.log("  yPUSD.YIELD_INJECTOR_ROLE already granted to keeper");
+            for (uint256 i = 0; i < keepers.length; i++) {
+                if (!ypusdContract.hasRole(yieldInjectorRole, keepers[i])) {
+                    ypusdContract.grantRole(yieldInjectorRole, keepers[i]);
+                    console.log("  yPUSD.YIELD_INJECTOR_ROLE granted to keeper:", keepers[i]);
+                } else {
+                    console.log("  yPUSD.YIELD_INJECTOR_ROLE already granted to keeper:", keepers[i]);
+                }
             }
         } else {
             if (ypusd == address(0)) console.log("  WARNING: YPUSD not set, skipping YIELD_INJECTOR_ROLE");
-            if (keeper == address(0)) console.log("  WARNING: KEEPER not set, skipping YIELD_INJECTOR_ROLE");
+            if (keepers.length == 0) console.log("  WARNING: KEEPER not set, skipping YIELD_INJECTOR_ROLE");
         }
 
         // 4. Vault: Grant PAUSER_ROLE to Oracle (for depeg auto-pause)
@@ -530,32 +572,103 @@ contract PostDeployConfig is Script {
             console.log("  Vault.PAUSER_ROLE already granted to Oracle");
         }
 
-        // 5. Farm: Grant OPERATOR_ROLE to operator (for APY/fees/configuration)
-        if (operator != address(0)) {
+        // 5. Farm: Grant OPERATOR_ROLE to operators (for APY/fees/configuration)
+        if (operators.length > 0) {
             bytes32 operatorRole = keccak256("OPERATOR_ROLE");
-            if (!farmContract.hasRole(operatorRole, operator)) {
-                farmContract.grantRole(operatorRole, operator);
-                console.log("  Farm.OPERATOR_ROLE granted to operator:", operator);
-            } else {
-                console.log("  Farm.OPERATOR_ROLE already granted to operator");
+            for (uint256 i = 0; i < operators.length; i++) {
+                if (!farmContract.hasRole(operatorRole, operators[i])) {
+                    farmContract.grantRole(operatorRole, operators[i]);
+                    console.log("  Farm.OPERATOR_ROLE granted to operator:", operators[i]);
+                } else {
+                    console.log("  Farm.OPERATOR_ROLE already granted to operator:", operators[i]);
+                }
             }
         } else {
             console.log("  WARNING: OPERATOR not set, skipping OPERATOR_ROLE");
         }
 
-        // 6. FarmLend: Grant OPERATOR_ROLE to operator (for configuration management)
-        if (farmLend != address(0) && operator != address(0)) {
+        // 6. FarmLend: Grant OPERATOR_ROLE to operators (for configuration management)
+        if (farmLend != address(0) && operators.length > 0) {
             FarmLend farmLendContract = FarmLend(farmLend);
             bytes32 operatorRole = keccak256("OPERATOR_ROLE");
-            if (!farmLendContract.hasRole(operatorRole, operator)) {
-                farmLendContract.grantRole(operatorRole, operator);
-                console.log("  FarmLend.OPERATOR_ROLE granted to operator:", operator);
-            } else {
-                console.log("  FarmLend.OPERATOR_ROLE already granted to operator");
+            for (uint256 i = 0; i < operators.length; i++) {
+                if (!farmLendContract.hasRole(operatorRole, operators[i])) {
+                    farmLendContract.grantRole(operatorRole, operators[i]);
+                    console.log("  FarmLend.OPERATOR_ROLE granted to operator:", operators[i]);
+                } else {
+                    console.log("  FarmLend.OPERATOR_ROLE already granted to operator:", operators[i]);
+                }
             }
         } else {
             if (farmLend == address(0)) console.log("  WARNING: FARMLEND not set, skipping FarmLend OPERATOR_ROLE");
-            if (operator == address(0)) console.log("  WARNING: OPERATOR not set, skipping FarmLend OPERATOR_ROLE");
+            if (operators.length == 0) console.log("  WARNING: OPERATOR not set, skipping FarmLend OPERATOR_ROLE");
         }
+    }
+
+    // ╔═══════════════════════════════════════════════════════════════════════╗
+    // ║                    ADDRESS PARSING HELPER                              ║
+    // ╚═══════════════════════════════════════════════════════════════════════╝
+    
+    /**
+     * @notice Parse comma-separated addresses from env string
+     * @param envValue The env value like "0x123...,0x456...,0x789..."
+     * @return addresses Array of parsed addresses
+     */
+    function _parseAddresses(string memory envValue) internal pure returns (address[] memory) {
+        bytes memory b = bytes(envValue);
+        if (b.length == 0) {
+            return new address[](0);
+        }
+        
+        // Count commas to determine array size
+        uint256 count = 1;
+        for (uint256 i = 0; i < b.length; i++) {
+            if (b[i] == ",") count++;
+        }
+        
+        address[] memory addresses = new address[](count);
+        uint256 index = 0;
+        uint256 start = 0;
+        
+        for (uint256 i = 0; i <= b.length; i++) {
+            if (i == b.length || b[i] == ",") {
+                // Extract substring
+                bytes memory addrBytes = new bytes(i - start);
+                for (uint256 j = start; j < i; j++) {
+                    addrBytes[j - start] = b[j];
+                }
+                addresses[index] = _parseAddress(string(addrBytes));
+                index++;
+                start = i + 1;
+            }
+        }
+        
+        return addresses;
+    }
+    
+    /**
+     * @notice Parse a single hex address string to address
+     * @param s The hex string like "0x123..." (42 chars)
+     */
+    function _parseAddress(string memory s) internal pure returns (address) {
+        bytes memory b = bytes(s);
+        require(b.length == 42, "Invalid address length");
+        require(b[0] == "0" && b[1] == "x", "Address must start with 0x");
+        
+        uint160 result = 0;
+        for (uint256 i = 2; i < 42; i++) {
+            result *= 16;
+            uint8 c = uint8(b[i]);
+            if (c >= 48 && c <= 57) {
+                result += c - 48;  // 0-9
+            } else if (c >= 65 && c <= 70) {
+                result += c - 55;  // A-F
+            } else if (c >= 97 && c <= 102) {
+                result += c - 87;  // a-f
+            } else {
+                revert("Invalid hex character");
+            }
+        }
+        return address(result);
     }
 }

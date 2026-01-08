@@ -219,24 +219,38 @@ contract FarmLend is Initializable, AccessControlUpgradeable, ReentrancyGuardUpg
         return tokenIdsForDebt[borrower];
     }
 
-    /// @notice Get full loan details for a given NFT
+    /// @notice Get full loan details for a given NFT with real-time interest and penalty
     /// @param tokenId NFT token ID
-    /// @return loan The complete Loan struct
-    function getLoan(uint256 tokenId) external view returns (Loan memory) {
-        return loans[tokenId];
+    /// @return loan The complete Loan struct with current accrued values
+    function getLoan(uint256 tokenId) external view returns (Loan memory loan) {
+        Loan storage stored = loans[tokenId];
+        loan = stored;
+        
+        // Calculate real-time interest and penalty
+        if (stored.active) {
+            loan.accruedInterest = _currentInterestView(stored);
+            loan.accruedPenalty = _currentPenaltyView(stored);
+        }
     }
 
-    /// @notice Get all loans for a given borrower with full details
+    /// @notice Get all loans for a given borrower with full details (real-time interest/penalty)
     /// @param borrower Address of the borrower
     /// @return tokenIds Array of NFT token IDs
-    /// @return loanDetails Array of Loan structs
+    /// @return loanDetails Array of Loan structs with current accrued values
     function getLoansForBorrower(address borrower) external view returns (uint256[] memory tokenIds, Loan[] memory loanDetails) {
         tokenIds = tokenIdsForDebt[borrower];
         uint256 len = tokenIds.length;
         loanDetails = new Loan[](len);
         
         for (uint256 i = 0; i < len; i++) {
-            loanDetails[i] = loans[tokenIds[i]];
+            Loan storage stored = loans[tokenIds[i]];
+            loanDetails[i] = stored;
+            
+            // Calculate real-time interest and penalty
+            if (stored.active) {
+                loanDetails[i].accruedInterest = _currentInterestView(stored);
+                loanDetails[i].accruedPenalty = _currentPenaltyView(stored);
+            }
         }
     }
 

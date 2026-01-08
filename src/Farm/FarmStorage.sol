@@ -32,7 +32,7 @@ abstract contract FarmStorage is IFarm {
     uint16 public withdrawFeeRate = 50; // Withdrawal fee rate (basis points, 50 = 0.5%, max 65535)
     uint16 public bridgeFeeRate = 0; // Bridge fee rate (basis points, 50 = 0.5%, max 65535)
 
-    uint256 public minDepositAmount = 10 * 10 ** 6; // Minimum deposit amount (USD, configurable)
+    uint256 public minDepositAmount = 0; // Minimum deposit amount (PUSD wei, set via config)
 
     /* ========== Statistics ========== */
 
@@ -44,7 +44,7 @@ abstract contract FarmStorage is IFarm {
     /* ========== Staking Mining System ========== */
 
     uint256 public totalStaked; // Total staked amount
-    uint256 public minLockAmount = 100; // Minimum staking amount (PUSD, configurable)
+    uint256 public minLockAmount = 0; // Minimum staking amount (PUSD wei, set via config)
 
     /* ========== APY History System ========== */
 
