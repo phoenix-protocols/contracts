@@ -35,7 +35,8 @@ contract VaultTest is Test, Vault_Deployer_Base {
     address sweepTo  = admin;
 
     function setUp() public {
-        bytes32 salt = vm.envBytes32("SALT");
+        // Use default salt for testing (vm.envOr to avoid CI failures)
+        bytes32 salt = vm.envOr("SALT", bytes32(uint256(0x10100)));
         
         // Mocks ERC20 tokens
         usdt = new ERC20Mock("USDT", "USDT", 6);

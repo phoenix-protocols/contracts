@@ -251,6 +251,28 @@ contract Vault is Initializable, AccessControlUpgradeable, PausableUpgradeable, 
     }
 
     /**
+     * @notice Compound rewards from reserve (for stake renewal)
+     * @dev Deducts from reserve but keeps PUSD in Vault (as part of increased stake principal)
+     *      Only callable by Farm contract
+     * @param amount Reward amount to compound
+     * @return success Whether the compound was successful
+     */
+    function compoundReward(uint256 amount) external nonReentrant returns (bool success) {
+        require(msg.sender == farm, "Vault: Caller is not the farm");
+        if (amount == 0) return true;
+        
+        if (rewardReserve >= amount) {
+            rewardReserve -= amount;
+            // Note: PUSD stays in Vault (not transferred), backing the increased stake
+            emit RewardCompounded(amount, rewardReserve);
+            return true;
+        } else {
+            emit InsufficientRewardReserve(amount, rewardReserve);
+            return false;
+        }
+    }
+
+    /**
      * @notice Distribute rewards from reserve to user
      * @dev Only callable by Farm contract
      * @param to Recipient address

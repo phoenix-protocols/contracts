@@ -39,6 +39,8 @@ interface IVault {
 
     function withdrawRewardReserve(address to, uint256 amount) external;
 
+    function compoundReward(uint256 amount) external returns (bool success);
+
     function distributeReward(address to, uint256 amount) external returns (bool success);
 
     function getRewardReserve() external view returns (uint256);

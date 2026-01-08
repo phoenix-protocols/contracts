@@ -48,6 +48,15 @@ contract MockVault {
         }
         return false;
     }
+
+    /// @notice Mock compoundReward - deduct from reserve but keep in vault
+    function compoundReward(uint256 amount) external returns (bool) {
+        // For mock, just return true if we have enough balance
+        if (address(pusdToken) != address(0) && pusdToken.balanceOf(address(this)) >= amount) {
+            return true;
+        }
+        return false;
+    }
     
     /// @notice Mock withdrawPUSDTo - transfer PUSD to recipient
     function withdrawPUSDTo(address to, uint256 amount) external {

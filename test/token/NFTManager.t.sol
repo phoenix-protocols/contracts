@@ -16,7 +16,8 @@ contract NFTManagerTest is Test, NFTManager_Deployer_Base {
     address user  = address(0xCAFE);
 
     function setUp() public {
-        bytes32 salt = vm.envBytes32("SALT");
+        // Use default salt for testing (vm.envOr to avoid CI failures)
+        bytes32 salt = vm.envOr("SALT", bytes32(uint256(0x10100)));
         nft = _deploy("Stake NFT", "sNFT", admin, farm, salt);
     }
 

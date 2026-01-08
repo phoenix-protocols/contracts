@@ -79,6 +79,7 @@ contract VaultStorage {
     event RewardReserveAdded(address indexed from, uint256 amount, uint256 newTotal);
     event RewardReserveWithdrawn(address indexed to, uint256 amount, uint256 newTotal);
     event RewardDistributed(address indexed to, uint256 amount, uint256 remainingReserve);
+    event RewardCompounded(uint256 amount, uint256 remainingReserve);
     event InsufficientRewardReserve(uint256 required, uint256 available);
 
     // PlaceHolder

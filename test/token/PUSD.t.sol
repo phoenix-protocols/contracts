@@ -21,7 +21,8 @@ contract PUSDTest is Test, PUSD_Deployer_Base {
     bytes32 MINTER_ROLE;
 
     function setUp() public {
-        salt = vm.envBytes32("SALT");
+        // Use default salt for testing (vm.envOr to avoid CI failures)
+        salt = vm.envOr("SALT", bytes32(uint256(0x10100)));
         token = _deploy(CAP, admin, salt);
 
         MINTER_ROLE = token.MINTER_ROLE();

@@ -26,7 +26,8 @@ contract yPUSDTest is Test, yPUSD_Deployer_Base {
     bytes32 YIELD_INJECTOR_ROLE;
 
     function setUp() public {
-        salt = vm.envBytes32("SALT");
+        // Use default salt for testing (vm.envOr to avoid CI failures)
+        salt = vm.envOr("SALT", bytes32(uint256(0x10100)));
         
         // Deploy mock PUSD
         pusd = new ERC20Mock("Phoenix USD", "PUSD", 6);

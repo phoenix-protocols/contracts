@@ -270,7 +270,12 @@ contract FarmUpgradeable is Initializable, AccessControlUpgradeable, ReentrancyG
         stakeRecord.pendingReward = 0;
 
         // Compound rewards: add to stake principal
+        // CRITICAL: Must transfer rewards from reserve to Vault to back the increased stake
         if (totalReward > 0) {
+            // Transfer reward from reserve to Vault (so withdrawPUSDTo has enough funds)
+            bool success = vault.compoundReward(totalReward);
+            require(success, "Low reserve");
+            
             stakeRecord.amount += totalReward;
             totalStaked += totalReward;
         }

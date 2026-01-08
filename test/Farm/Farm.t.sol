@@ -319,9 +319,7 @@ contract FarmIntegrationTest is Test, Farm_Deployer_Base {
     function test_RenewStake_WithCompound() public {
         uint256 stakeAmount = 500 * 1e6;
 
-        // Setup reward reserve
-        vm.prank(admin);
-        pusd.mint(address(vault), 10000 * 1e6);
+        // Note: setUp already added INITIAL_BALANCE * 100 to reward reserve
 
         vm.startPrank(user1);
         usdt.approve(address(vault), 1000 * 1e6);
@@ -334,15 +332,22 @@ contract FarmIntegrationTest is Test, Farm_Deployer_Base {
         vm.warp(block.timestamp + 31 days);
 
         IFarm.StakeRecord memory recordBefore = nftManager.getStakeRecord(tokenId);
+        uint256 reserveBefore = vault.getRewardReserve();
 
         // Renew - rewards are automatically compounded
         vm.prank(user1);
         farm.renewStake(tokenId, 30 days);
 
         IFarm.StakeRecord memory recordAfter = nftManager.getStakeRecord(tokenId);
+        uint256 reserveAfter = vault.getRewardReserve();
         
         // Amount should have increased due to compounding
-        assertGe(recordAfter.amount, recordBefore.amount);
+        uint256 compoundedReward = recordAfter.amount - recordBefore.amount;
+        assertGt(compoundedReward, 0, "Reward should be compounded");
+        assertGe(recordAfter.amount, recordBefore.amount, "Amount should increase");
+        
+        // Reserve should decrease by the compounded amount
+        assertEq(reserveBefore - reserveAfter, compoundedReward, "Reserve should decrease by compounded amount");
     }
 
     // ==================== APY Management Tests ====================
