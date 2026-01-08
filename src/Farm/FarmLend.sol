@@ -781,9 +781,15 @@ contract FarmLend is Initializable, AccessControlUpgradeable, ReentrancyGuardUpg
         // 9. Convert x18 back to debtToken decimals
         uint256 x = x18 / (10 ** (18 - debtDecimals));
 
+        // Cap x at total debt for severely underwater positions
+        // When collateral << debt, the formula may require x > totalDebt to reach targetCR
+        // In this case, we allow full liquidation (x = B) to clear the bad debt
+        if (x > B) {
+            x = B;
+        }
+
         // Liquidator may cap max repayment
         require(x > 0, "FarmLend: repay amount too small");
-        require(x <= B, "FarmLend: repay exceeds debt");
         require(x <= maxRepayAmount, "FarmLend: exceeds liquidator's maxRepayAmount");
 
         // 10. Liquidator pays x debtTokens into Vault
