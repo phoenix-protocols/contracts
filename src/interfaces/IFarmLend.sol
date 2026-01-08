@@ -45,6 +45,7 @@ interface IFarmLend {
     event MinBorrowAmountUpdated(uint256 oldValue, uint256 newValue);
     event AnnualInterestRateUpdated(uint256 oldValue, uint256 newValue);
     event CollateralSlashed(uint256 indexed tokenId, address indexed borrower, uint256 slashedAmount);
+    event NFTSeized(uint256 indexed tokenId, address indexed borrower, address indexed operator);
 
     // -------- View functions --------
 

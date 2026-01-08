@@ -914,12 +914,13 @@ contract FarmUpgradeable is Initializable, AccessControlUpgradeable, ReentrancyG
      * @notice Finalize PUSD bridge from another chain
      * @dev Mints PUSD to recipient after cross-chain message is verified by Relayer
      *      This function is called by OPERATOR_ROLE (Relayer) after verifying MessageSent event on source chain
+     *      Fee is minted to Vault as protocol revenue (consistent with deposit/withdraw fees)
      * @param sourceChainId Source chain ID (e.g., 56 for BNB Chain, 10 for Optimism)
      * @param destChainId Destination chain ID (must match current chain)
      * @param from Original sender address on source chain
      * @param to Recipient address on destination chain
      * @param amount Amount to mint (net after fees)
-     * @param _fee Bridge fee amount
+     * @param _fee Bridge fee amount (minted to Vault as protocol revenue)
      * @param _nonce Message nonce from MessageManager on source chain
      * @return success Whether finalization succeeded
      */
@@ -933,8 +934,9 @@ contract FarmUpgradeable is Initializable, AccessControlUpgradeable, ReentrancyG
         // Mint PUSD to recipient
         pusdToken.mint(to, amount);
 
-        // Handle fees
+        // Mint fee to Vault and record as protocol revenue
         if (_fee > 0) {
+            pusdToken.mint(address(vault), _fee);
             vault.addFee(address(pusdToken), _fee);
         }
 

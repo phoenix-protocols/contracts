@@ -665,13 +665,28 @@ contract FarmLend is Initializable, AccessControlUpgradeable, ReentrancyGuardUpg
     }
 
     /// @notice Operator seize NFT after loan is overdue beyond grace period
+    /// @dev NFT is transferred to operator, all loan records are cleared
+    /// @param tokenId NFT token ID to seize
     function seizeOverdueNFT(uint256 tokenId) external onlyRole(OPERATOR_ROLE) {
         Loan storage loan = loans[tokenId];
         require(loan.active, "FarmLend: no active loan");
         require(block.timestamp > loan.endTime + loanGracePeriod, "FarmLend: not overdue enough");
 
+        address borrower = loan.borrower;
+        
+        // Clear loan record
+        delete loans[tokenId];
+        
+        // Remove from borrower's debt tokenId list
+        _removeTokenIdFromDebt(borrower, tokenId);
+        
+        // Release NFT to operator
         vault.releaseNFT(tokenId, msg.sender);
-        loan.active = false;
+        
+        // Remove from borrower's Farm tokenIds (NFT now belongs to operator)
+        IFarm(farm).onNFTTransfer(borrower, msg.sender, tokenId);
+        
+        emit NFTSeized(tokenId, borrower, msg.sender);
     }
 
     /**
