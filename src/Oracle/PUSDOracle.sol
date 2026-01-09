@@ -63,7 +63,6 @@ contract PUSDOracleUpgradeable is
         _grantRole(UPGRADER_ROLE, admin);
 
         // Initialize parameters
-        maxPriceAge = DEFAULT_MAX_PRICE_AGE;
         heartbeatInterval = DEFAULT_HEARTBEAT_INTERVAL;
         lastHeartbeat = block.timestamp;
     }
@@ -74,11 +73,13 @@ contract PUSDOracleUpgradeable is
      * @notice Add supported token with Chainlink price feed
      * @param token Token address
      * @param usdFeed Chainlink Token/USD price feed address
+     * @param _maxPriceAge Maximum price age for this token (seconds)
      */
-    function addToken(address token, address usdFeed) external onlyRole(DEFAULT_ADMIN_ROLE) {
+    function addToken(address token, address usdFeed, uint256 _maxPriceAge) external onlyRole(DEFAULT_ADMIN_ROLE) {
         require(token != address(0), "Invalid token");
         require(usdFeed != address(0), "Invalid feed");
         require(tokens[token].usdFeed == address(0), "Token exists");
+        require(_maxPriceAge > 0 && _maxPriceAge <= 3600 * 48, "Invalid max price age");
 
         // Verify Chainlink feed is working
         AggregatorV3Interface feed = AggregatorV3Interface(usdFeed);
@@ -86,9 +87,12 @@ contract PUSDOracleUpgradeable is
         
         require(price > 0, "Invalid price");
         require(block.timestamp >= updatedAt, "Future timestamp");
-        require(block.timestamp - updatedAt <= maxPriceAge, "Stale price");
+        require(block.timestamp - updatedAt <= _maxPriceAge, "Stale price");
 
-        tokens[token] = TokenConfig({usdFeed: usdFeed});
+        tokens[token] = TokenConfig({
+            usdFeed: usdFeed,
+            maxPriceAge: _maxPriceAge
+        });
         supportedTokens.push(token);
 
         emit TokenAdded(token, usdFeed);
@@ -141,7 +145,7 @@ contract PUSDOracleUpgradeable is
         (, int256 priceInt, , uint256 updatedAt, ) = feed.latestRoundData();
 
         require(priceInt > 0, "Invalid price");
-        require(block.timestamp - updatedAt <= maxPriceAge, "Stale price");
+        require(block.timestamp - updatedAt <= config.maxPriceAge, "Stale price");
 
         // Normalize to 18 decimals
         uint256 tokenPrice = uint256(priceInt);
@@ -181,9 +185,11 @@ contract PUSDOracleUpgradeable is
      * @notice Get token configuration
      * @param token Token address
      * @return usdFeed Chainlink price feed address
+     * @return maxPriceAge Maximum price age for this token
      */
-    function getTokenInfo(address token) external view returns (address usdFeed) {
-        return tokens[token].usdFeed;
+    function getTokenInfo(address token) external view returns (address usdFeed, uint256 maxPriceAge) {
+        TokenConfig storage config = tokens[token];
+        return (config.usdFeed, config.maxPriceAge);
     }
 
     /* ========== Heartbeat ========== */
@@ -208,21 +214,26 @@ contract PUSDOracleUpgradeable is
     /* ========== System Parameters ========== */
 
     /**
-     * @notice Update system parameters
-     * @param _maxPriceAge Maximum age for Chainlink prices (seconds)
+     * @notice Update heartbeat interval
      * @param _heartbeatInterval Heartbeat interval (seconds)
      */
-    function updateSystemParameters(
-        uint256 _maxPriceAge, 
-        uint256 _heartbeatInterval
-    ) external onlyRole(DEFAULT_ADMIN_ROLE) {
-        require(_maxPriceAge > 0 && _maxPriceAge <= 3600 * 48, "Invalid price age");
+    function updateHeartbeatInterval(uint256 _heartbeatInterval) external onlyRole(DEFAULT_ADMIN_ROLE) {
         require(_heartbeatInterval > 0 && _heartbeatInterval <= 86400, "Invalid interval");
-
-        maxPriceAge = _maxPriceAge;
         heartbeatInterval = _heartbeatInterval;
+        emit HeartbeatIntervalUpdated(_heartbeatInterval);
+    }
 
-        emit SystemParametersUpdated(_maxPriceAge, _heartbeatInterval);
+    /**
+     * @notice Update max price age for a specific token
+     * @param token Token address
+     * @param _maxPriceAge New max price age (seconds)
+     */
+    function updateTokenMaxPriceAge(address token, uint256 _maxPriceAge) external onlyRole(DEFAULT_ADMIN_ROLE) {
+        require(tokens[token].usdFeed != address(0), "Token not supported");
+        require(_maxPriceAge > 0 && _maxPriceAge <= 3600 * 48, "Invalid price age");
+        
+        tokens[token].maxPriceAge = _maxPriceAge;
+        emit TokenMaxPriceAgeUpdated(token, _maxPriceAge);
     }
 
     /* ========== Pause Control ========== */

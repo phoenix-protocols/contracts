@@ -560,7 +560,8 @@ contract VaultTest is Test, Vault_Deployer_Base {
 
         oracle.setReverts(true, false, false);
         (tvl, marketValue) = vault.getTVL(address(usdt));
-        assertEq(marketValue, tvl);
+        // Fallback: marketValue = tvl * 10^(18-6) = tvl * 10^12
+        assertEq(marketValue, tvl * 1e12);
     }
 
     function test_GetTVL_WithoutOracle() public {
@@ -582,7 +583,8 @@ contract VaultTest is Test, Vault_Deployer_Base {
         vm.stopPrank();
 
         (uint256 tvl, uint256 mv) = newVault.getTVL(address(usdt));
-        assertEq(mv, tvl);
+        // Without oracle: mv = tvl * 10^(18-6) = tvl * 10^12
+        assertEq(mv, tvl * 1e12);
     }
 
     function test_GetTotalTVL() public {

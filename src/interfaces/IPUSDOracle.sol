@@ -11,9 +11,10 @@ pragma solidity ^0.8.20;
 interface IPUSDOracle {
     /* ========== Structs ========== */
 
-    // Simplified Token config - only Chainlink feed needed
+    // Token config with per-token price age setting
     struct TokenConfig {
-        address usdFeed; // Chainlink Token/USD price source
+        address usdFeed;      // Chainlink Token/USD price source
+        uint256 maxPriceAge;  // Max price age for this token (seconds)
     }
 
     /* ========== Events ========== */
@@ -21,12 +22,13 @@ interface IPUSDOracle {
     event TokenAdded(address indexed token, address usdFeed);
     event TokenRemoved(address indexed token);
     event HeartbeatSent(uint256 timestamp);
-    event SystemParametersUpdated(uint256 maxPriceAge, uint256 heartbeatInterval);
+    event HeartbeatIntervalUpdated(uint256 heartbeatInterval);
+    event TokenMaxPriceAgeUpdated(address indexed token, uint256 maxPriceAge);
 
     /* ========== Core Functions ========== */
 
     // ----------- Token management -----------
-    function addToken(address token, address usdFeed) external;
+    function addToken(address token, address usdFeed, uint256 maxPriceAge) external;
 
     function removeToken(address token) external;
 
@@ -59,13 +61,14 @@ interface IPUSDOracle {
 
     function getSupportedTokens() external view returns (address[] memory);
 
-    function getTokenInfo(address token) external view returns (address usdFeed);
+    function getTokenInfo(address token) external view returns (address usdFeed, uint256 maxPriceAge);
 
     // ----------- Heartbeat -----------
     function sendHeartbeat() external;
 
     // ----------- System parameters -----------
-    function updateSystemParameters(uint256 _maxPriceAge, uint256 _heartbeatInterval) external;
+    function updateHeartbeatInterval(uint256 _heartbeatInterval) external;
+    function updateTokenMaxPriceAge(address token, uint256 _maxPriceAge) external;
 
     // ----------- Version control -----------
     function getVersion() external pure returns (string memory);

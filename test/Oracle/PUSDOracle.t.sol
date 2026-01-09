@@ -68,11 +68,14 @@ contract PUSDOracleTest is Test {
     address public usdtToken = address(0x10);
     address public usdcToken = address(0x11);
 
+    uint256 public constant DEFAULT_MAX_PRICE_AGE = 24 hours;
+
     // Events (matching actual contract)
     event TokenAdded(address indexed token, address usdFeed);
     event TokenRemoved(address indexed token);
     event HeartbeatSent(uint256 timestamp);
-    event SystemParametersUpdated(uint256 maxPriceAge, uint256 heartbeatInterval);
+    event HeartbeatIntervalUpdated(uint256 heartbeatInterval);
+    event TokenMaxPriceAgeUpdated(address indexed token, uint256 maxPriceAge);
 
     function setUp() public {
         vault = new MockVault();
@@ -101,7 +104,6 @@ contract PUSDOracleTest is Test {
         assertTrue(oracle.hasRole(oracle.DEFAULT_ADMIN_ROLE(), admin));
         assertEq(address(oracle.vault()), address(vault));
         assertEq(oracle.pusdToken(), pusdToken);
-        assertEq(oracle.maxPriceAge(), 24 hours);
         assertEq(oracle.heartbeatInterval(), 1 hours);
     }
 
@@ -120,34 +122,47 @@ contract PUSDOracleTest is Test {
         vm.prank(admin);
         vm.expectEmit(true, false, false, true);
         emit TokenAdded(usdtToken, address(usdtFeed));
-        oracle.addToken(usdtToken, address(usdtFeed));
+        oracle.addToken(usdtToken, address(usdtFeed), DEFAULT_MAX_PRICE_AGE);
 
         address[] memory tokens = oracle.getSupportedTokens();
         assertEq(tokens.length, 1);
         assertEq(tokens[0], usdtToken);
 
-        address usdFeed = oracle.getTokenInfo(usdtToken);
+        (address usdFeed, uint256 maxPriceAge) = oracle.getTokenInfo(usdtToken);
         assertEq(usdFeed, address(usdtFeed));
+        assertEq(maxPriceAge, DEFAULT_MAX_PRICE_AGE);
     }
 
     function test_AddToken_RevertInvalidToken() public {
         vm.prank(admin);
         vm.expectRevert("Invalid token");
-        oracle.addToken(address(0), address(usdtFeed));
+        oracle.addToken(address(0), address(usdtFeed), DEFAULT_MAX_PRICE_AGE);
     }
 
     function test_AddToken_RevertInvalidFeed() public {
         vm.prank(admin);
         vm.expectRevert("Invalid feed");
-        oracle.addToken(usdtToken, address(0));
+        oracle.addToken(usdtToken, address(0), DEFAULT_MAX_PRICE_AGE);
+    }
+
+    function test_AddToken_RevertInvalidMaxPriceAge() public {
+        vm.startPrank(admin);
+        
+        vm.expectRevert("Invalid max price age");
+        oracle.addToken(usdtToken, address(usdtFeed), 0);
+
+        vm.expectRevert("Invalid max price age");
+        oracle.addToken(usdtToken, address(usdtFeed), 3600 * 49);
+        
+        vm.stopPrank();
     }
 
     function test_AddToken_RevertAlreadyExists() public {
         vm.startPrank(admin);
-        oracle.addToken(usdtToken, address(usdtFeed));
+        oracle.addToken(usdtToken, address(usdtFeed), DEFAULT_MAX_PRICE_AGE);
 
         vm.expectRevert("Token exists");
-        oracle.addToken(usdtToken, address(usdtFeed));
+        oracle.addToken(usdtToken, address(usdtFeed), DEFAULT_MAX_PRICE_AGE);
         vm.stopPrank();
     }
 
@@ -156,7 +171,7 @@ contract PUSDOracleTest is Test {
 
         vm.prank(admin);
         vm.expectRevert("Invalid price");
-        oracle.addToken(usdtToken, address(badFeed));
+        oracle.addToken(usdtToken, address(badFeed), DEFAULT_MAX_PRICE_AGE);
     }
 
     function test_AddToken_RevertPriceTooOld() public {
@@ -165,20 +180,20 @@ contract PUSDOracleTest is Test {
 
         vm.prank(admin);
         vm.expectRevert("Stale price");
-        oracle.addToken(usdtToken, address(usdtFeed));
+        oracle.addToken(usdtToken, address(usdtFeed), DEFAULT_MAX_PRICE_AGE);
     }
 
     function test_AddToken_RevertUnauthorized() public {
         vm.prank(address(0x9999));
         vm.expectRevert();
-        oracle.addToken(usdtToken, address(usdtFeed));
+        oracle.addToken(usdtToken, address(usdtFeed), DEFAULT_MAX_PRICE_AGE);
     }
 
     // ==================== Remove Token Tests ====================
 
     function test_RemoveToken() public {
         vm.startPrank(admin);
-        oracle.addToken(usdtToken, address(usdtFeed));
+        oracle.addToken(usdtToken, address(usdtFeed), DEFAULT_MAX_PRICE_AGE);
 
         vm.expectEmit(true, false, false, true);
         emit TokenRemoved(usdtToken);
@@ -208,7 +223,7 @@ contract PUSDOracleTest is Test {
 
     function test_GetTokenPUSDPrice() public {
         vm.prank(admin);
-        oracle.addToken(usdtToken, address(usdtFeed));
+        oracle.addToken(usdtToken, address(usdtFeed), DEFAULT_MAX_PRICE_AGE);
 
         // Token/PUSD = Token/USD since PUSD/USD = 1
         (uint256 price, uint256 timestamp) = oracle.getTokenPUSDPrice(usdtToken);
@@ -223,7 +238,7 @@ contract PUSDOracleTest is Test {
 
     function test_GetTokenPUSDPrice_RevertPriceTooOld() public {
         vm.prank(admin);
-        oracle.addToken(usdtToken, address(usdtFeed));
+        oracle.addToken(usdtToken, address(usdtFeed), DEFAULT_MAX_PRICE_AGE);
 
         vm.warp(block.timestamp + 25 hours);
 
@@ -235,7 +250,7 @@ contract PUSDOracleTest is Test {
 
     function test_GetTokenUSDPrice() public {
         vm.prank(admin);
-        oracle.addToken(usdtToken, address(usdtFeed));
+        oracle.addToken(usdtToken, address(usdtFeed), DEFAULT_MAX_PRICE_AGE);
 
         (uint256 price, uint256 timestamp) = oracle.getTokenUSDPrice(usdtToken);
         assertEq(price, 1e18);
@@ -247,7 +262,7 @@ contract PUSDOracleTest is Test {
         MockChainlinkFeed feed18 = new MockChainlinkFeed(1e18, 18);
 
         vm.prank(admin);
-        oracle.addToken(usdtToken, address(feed18));
+        oracle.addToken(usdtToken, address(feed18), DEFAULT_MAX_PRICE_AGE);
 
         (uint256 price, ) = oracle.getTokenUSDPrice(usdtToken);
         assertEq(price, 1e18);
@@ -260,7 +275,7 @@ contract PUSDOracleTest is Test {
 
     function test_GetTokenUSDPrice_RevertInvalidPrice() public {
         vm.prank(admin);
-        oracle.addToken(usdtToken, address(usdtFeed));
+        oracle.addToken(usdtToken, address(usdtFeed), DEFAULT_MAX_PRICE_AGE);
 
         usdtFeed.setPrice(0);
 
@@ -270,12 +285,35 @@ contract PUSDOracleTest is Test {
 
     function test_GetTokenUSDPrice_RevertPriceTooOld() public {
         vm.prank(admin);
-        oracle.addToken(usdtToken, address(usdtFeed));
+        oracle.addToken(usdtToken, address(usdtFeed), DEFAULT_MAX_PRICE_AGE);
 
         vm.warp(block.timestamp + 25 hours);
 
         vm.expectRevert("Stale price");
         oracle.getTokenUSDPrice(usdtToken);
+    }
+
+    // ==================== Per-Token MaxPriceAge Tests ====================
+
+    function test_DifferentMaxPriceAge_PerToken() public {
+        // Add USDT with 24h max price age
+        vm.startPrank(admin);
+        oracle.addToken(usdtToken, address(usdtFeed), 24 hours);
+        
+        // Add USDC with 1h max price age (like ETH/BTC feeds)
+        oracle.addToken(usdcToken, address(usdcFeed), 1 hours);
+        vm.stopPrank();
+
+        // Fast forward 2 hours
+        vm.warp(block.timestamp + 2 hours);
+        
+        // USDT should still work (2h < 24h)
+        (uint256 price, ) = oracle.getTokenUSDPrice(usdtToken);
+        assertEq(price, 1e18);
+        
+        // USDC should fail (2h > 1h)
+        vm.expectRevert("Stale price");
+        oracle.getTokenUSDPrice(usdcToken);
     }
 
     // ==================== Heartbeat Tests ====================
@@ -292,52 +330,71 @@ contract PUSDOracleTest is Test {
 
     // ==================== System Parameters Tests ====================
 
-    function test_UpdateSystemParameters() public {
+    function test_UpdateHeartbeatInterval() public {
         vm.prank(admin);
         vm.expectEmit(false, false, false, true);
-        emit SystemParametersUpdated(7200, 1800);
-        oracle.updateSystemParameters(7200, 1800);
+        emit HeartbeatIntervalUpdated(1800);
+        oracle.updateHeartbeatInterval(1800);
 
-        assertEq(oracle.maxPriceAge(), 7200);
         assertEq(oracle.heartbeatInterval(), 1800);
     }
 
-    function test_UpdateSystemParameters_RevertInvalidPriceAge() public {
+    function test_UpdateHeartbeatInterval_RevertInvalid() public {
         vm.startPrank(admin);
 
-        vm.expectRevert("Invalid price age");
-        oracle.updateSystemParameters(0, 1800);
+        vm.expectRevert("Invalid interval");
+        oracle.updateHeartbeatInterval(0);
 
-        vm.expectRevert("Invalid price age");
-        oracle.updateSystemParameters(3600 * 49, 1800);
+        vm.expectRevert("Invalid interval");
+        oracle.updateHeartbeatInterval(86401);
 
         vm.stopPrank();
     }
 
-    function test_UpdateSystemParameters_RevertInvalidInterval() public {
+    function test_UpdateTokenMaxPriceAge() public {
         vm.startPrank(admin);
+        oracle.addToken(usdtToken, address(usdtFeed), DEFAULT_MAX_PRICE_AGE);
 
-        vm.expectRevert("Invalid interval");
-        oracle.updateSystemParameters(7200, 0);
+        vm.expectEmit(true, false, false, true);
+        emit TokenMaxPriceAgeUpdated(usdtToken, 2 hours);
+        oracle.updateTokenMaxPriceAge(usdtToken, 2 hours);
+        vm.stopPrank();
 
-        vm.expectRevert("Invalid interval");
-        oracle.updateSystemParameters(7200, 86401);
+        (, uint256 maxPriceAge) = oracle.getTokenInfo(usdtToken);
+        assertEq(maxPriceAge, 2 hours);
+    }
+
+    function test_UpdateTokenMaxPriceAge_RevertNotSupported() public {
+        vm.prank(admin);
+        vm.expectRevert("Token not supported");
+        oracle.updateTokenMaxPriceAge(usdtToken, 2 hours);
+    }
+
+    function test_UpdateTokenMaxPriceAge_RevertInvalid() public {
+        vm.startPrank(admin);
+        oracle.addToken(usdtToken, address(usdtFeed), DEFAULT_MAX_PRICE_AGE);
+
+        vm.expectRevert("Invalid price age");
+        oracle.updateTokenMaxPriceAge(usdtToken, 0);
+
+        vm.expectRevert("Invalid price age");
+        oracle.updateTokenMaxPriceAge(usdtToken, 3600 * 49);
 
         vm.stopPrank();
     }
 
-    function test_UpdateSystemParameters_RevertUnauthorized() public {
+    function test_UpdateHeartbeatInterval_RevertUnauthorized() public {
         vm.prank(address(0x9999));
         vm.expectRevert();
-        oracle.updateSystemParameters(7200, 1800);
+        oracle.updateHeartbeatInterval(1800);
     }
 
     // ==================== Query Functions Tests ====================
 
     function test_GetSupportedTokens() public {
         vm.startPrank(admin);
-        oracle.addToken(usdtToken, address(usdtFeed));
-        oracle.addToken(usdcToken, address(usdcFeed));
+        oracle.addToken(usdtToken, address(usdtFeed), DEFAULT_MAX_PRICE_AGE);
+        oracle.addToken(usdcToken, address(usdcFeed), DEFAULT_MAX_PRICE_AGE);
         vm.stopPrank();
 
         address[] memory tokens = oracle.getSupportedTokens();
@@ -346,10 +403,11 @@ contract PUSDOracleTest is Test {
 
     function test_GetTokenInfo() public {
         vm.prank(admin);
-        oracle.addToken(usdtToken, address(usdtFeed));
+        oracle.addToken(usdtToken, address(usdtFeed), 12 hours);
 
-        address usdFeed = oracle.getTokenInfo(usdtToken);
+        (address usdFeed, uint256 maxPriceAge) = oracle.getTokenInfo(usdtToken);
         assertEq(usdFeed, address(usdtFeed));
+        assertEq(maxPriceAge, 12 hours);
     }
 
     function test_GetVersion() public view {
@@ -378,7 +436,7 @@ contract PUSDOracleTest is Test {
         MockChainlinkFeed feed = new MockChainlinkFeed(price, decimals);
 
         vm.prank(admin);
-        oracle.addToken(usdtToken, address(feed));
+        oracle.addToken(usdtToken, address(feed), DEFAULT_MAX_PRICE_AGE);
 
         (uint256 normalizedPrice, ) = oracle.getTokenUSDPrice(usdtToken);
 

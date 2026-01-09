@@ -208,14 +208,17 @@ contract PostDeployConfig is Script {
             return;
         }
 
-        // Add tokens with Chainlink feeds only (no DEX oracle needed)
+        // Add tokens with Chainlink feeds and max price age
+        // Stablecoins use 24h (Chainlink heartbeat is typically 24h for stablecoins)
+        uint256 stablecoinMaxPriceAge = 3600 * 25; // 25 hours (with buffer)
+
         if (usdt != address(0) && usdtFeed != address(0)) {
-            oracleContract.addToken(usdt, usdtFeed);
+            oracleContract.addToken(usdt, usdtFeed, stablecoinMaxPriceAge);
             console.log("  Added USDT with Chainlink feed:", usdtFeed);
         }
 
         if (usdc != address(0) && usdcFeed != address(0)) {
-            oracleContract.addToken(usdc, usdcFeed);
+            oracleContract.addToken(usdc, usdcFeed, stablecoinMaxPriceAge);
             console.log("  Added USDC with Chainlink feed:", usdcFeed);
         }
 

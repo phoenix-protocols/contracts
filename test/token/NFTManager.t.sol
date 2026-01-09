@@ -6,16 +6,22 @@ import {NFTManager} from "src/token/NFTManager/NFTManager.sol";
 import {NFTManagerStorage} from "src/token/NFTManager/NFTManagerStorage.sol";
 import {NFTManager_Deployer_Base,NFTManagerV2} from "script/token/base/NFTManager_Deployer_Base.sol";
 import {IFarm} from "src/interfaces/IFarm.sol";
+import {MockFarm} from "test/mocks/MockFarm.sol";
 
 contract NFTManagerTest is Test, NFTManager_Deployer_Base {
     NFTManager nft;
     NFTManagerV2 nftV2;
+    MockFarm mockFarm;
 
     address admin = address(0xA11CE);
-    address farm  = address(0xBEEF);
+    address farm;
     address user  = address(0xCAFE);
 
     function setUp() public {
+        // Deploy MockFarm for NFT transfer callbacks
+        mockFarm = new MockFarm();
+        farm = address(mockFarm);
+        
         // Use default salt for testing (vm.envOr to avoid CI failures)
         bytes32 salt = vm.envOr("SALT", bytes32(uint256(0x10100)));
         nft = _deploy("Stake NFT", "sNFT", admin, farm, salt);
@@ -240,7 +246,7 @@ contract NFTManagerTest is Test, NFTManager_Deployer_Base {
         uint256 tokenId = _mintOne();
 
         vm.prank(user);
-        vm.expectRevert("NFTManager: not authorized to edit metadata");
+        vm.expectRevert("NFTManager: not authorized to burn");
         nft.burn(tokenId);
     }
 

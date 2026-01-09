@@ -1117,13 +1117,13 @@ contract FarmLend is Initializable, AccessControlUpgradeable, ReentrancyGuardUpg
 
     /// @notice Check if a position can be slashed
     /// @param tokenId NFT token ID
-    /// @return canSlash Whether the position can be slashed
+    /// @return canSlashResult Whether the position can be slashed
     /// @return collateral Current collateral amount
-    function canSlash(uint256 tokenId) external view returns (bool canSlash, uint256 collateral) {
+    function canSlash(uint256 tokenId) external view returns (bool canSlashResult, uint256 collateral) {
         Loan storage loan = loans[tokenId];
         collateral = loan.remainingCollateralAmount;
         // Slash when collateral is below threshold (including 0) to clean up NFT and loan record
-        canSlash = !loan.active 
+        canSlashResult = !loan.active 
             && loan.borrower != address(0)
             && collateral < minCollateralThreshold;
     }
