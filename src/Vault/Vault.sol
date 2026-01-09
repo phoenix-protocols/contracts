@@ -542,22 +542,22 @@ contract Vault is Initializable, AccessControlUpgradeable, PausableUpgradeable, 
         uint256 fees = accumulatedFees[assetToken];
         tvl = balance >= fees ? balance - fees : 0;
 
+        // Get assetToken decimal places
+        uint8 decimals = IERC20Metadata(assetToken).decimals();
+
         // If Oracle is set, calculate real market value
         if (oracleManager != address(0)) {
             try IPUSDOracle(oracleManager).getTokenUSDPrice(assetToken) returns (uint256 price, uint256) {
-                // Get assetToken decimal places
-                uint8 decimals = IERC20Metadata(assetToken).decimals();
-
                 // Calculate market value: tvl * price / (10 ** decimals)
                 // price is already 18 decimal USD price, tvl is raw assetToken amount
                 marketValue = (tvl * price) / (10 ** decimals);
             } catch {
-                // Oracle call failed, use fallback logic
-                marketValue = tvl; // Assume 1:1 USD value
+                // Oracle call failed, assume 1:1 USD value, convert to 18 decimals
+                marketValue = tvl * (10 ** (18 - decimals));
             }
         } else {
-            // Oracle not set, use fallback logic
-            marketValue = tvl; // Assume 1:1 USD value
+            // Oracle not set, assume 1:1 USD value, convert to 18 decimals
+            marketValue = tvl * (10 ** (18 - decimals));
         }
     }
 
