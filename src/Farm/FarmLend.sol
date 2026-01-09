@@ -201,7 +201,7 @@ contract FarmLend is Initializable, AccessControlUpgradeable, ReentrancyGuardUpg
 
         principal = loan.borrowedAmount;
 
-        interest = _currentInterestView(loan);
+        interest = _currentInterestView(tokenId, loan);
         penalty = _currentPenaltyView(loan);
 
         total = principal + interest + penalty;
@@ -248,7 +248,7 @@ contract FarmLend is Initializable, AccessControlUpgradeable, ReentrancyGuardUpg
         
         // Calculate real-time interest and penalty
         if (stored.active) {
-            loan.accruedInterest = _currentInterestView(stored);
+            loan.accruedInterest = _currentInterestView(tokenId, stored);
             loan.accruedPenalty = _currentPenaltyView(stored);
         }
     }
@@ -268,7 +268,7 @@ contract FarmLend is Initializable, AccessControlUpgradeable, ReentrancyGuardUpg
             
             // Calculate real-time interest and penalty
             if (stored.active) {
-                loanDetails[i].accruedInterest = _currentInterestView(stored);
+                loanDetails[i].accruedInterest = _currentInterestView(tokenIds[i], stored);
                 loanDetails[i].accruedPenalty = _currentPenaltyView(stored);
             }
         }
@@ -376,8 +376,8 @@ contract FarmLend is Initializable, AccessControlUpgradeable, ReentrancyGuardUpg
     }
 
     /// @notice View current accrued interest (including from lastAccrual to now)
-    /// @dev Uses simple interest based on annual rate: interest = principal * rate * time / (10000 * 365 days)
-    function _currentInterestView(Loan storage loan) internal view returns (uint256) {
+    /// @dev When dynamicRateEnabled, uses stake yield rate from Farm
+    function _currentInterestView(uint256 tokenId, Loan storage loan) internal view returns (uint256) {
         if (!loan.active) return 0;
 
         uint256 interest = loan.accruedInterest;
@@ -392,10 +392,196 @@ contract FarmLend is Initializable, AccessControlUpgradeable, ReentrancyGuardUpg
 
         uint256 timeElapsed = block.timestamp - from;
         
-        // Simple interest: principal * annualRate * timeElapsed / (10000 * 365 days)
-        uint256 interestDelta = (loan.borrowedAmount * annualInterestRate * timeElapsed) / (10000 * 365 days);
+        // Get effective interest rate (reads stake APY from Farm when enabled)
+        uint256 effectiveRate = _getEffectiveInterestRateForLoan(tokenId);
+        
+        // Simple interest: principal * effectiveRate * timeElapsed / (10000 * 365 days)
+        uint256 interestDelta = (loan.borrowedAmount * effectiveRate * timeElapsed) / (10000 * 365 days);
 
         return interest + interestDelta;
+    }
+
+    /// @notice Calculate effective interest rate for a loan based on remaining time
+    /// @dev Borrow rate = max(baseRate, maxPossibleYieldRate within remaining time)
+    ///      This prevents arbitrage while not overcharging borrowers
+    /// @param tokenId NFT token ID
+    /// @return effectiveRate Effective annual interest rate in basis points
+    function _getEffectiveInterestRateForLoan(uint256 tokenId) internal view returns (uint256) {
+        Loan storage loan = loans[tokenId];
+        
+        // Calculate remaining time
+        uint256 remainingTime;
+        if (loan.active) {
+            remainingTime = loan.endTime > block.timestamp ? loan.endTime - block.timestamp : 0;
+        } else {
+            // For pre-borrow estimation, get from stake record
+            IFarm.StakeRecord memory record = nftManager.getStakeRecord(tokenId);
+            if (!record.active) {
+                return annualInterestRate;
+            }
+            uint256 endTime = record.startTime + record.lockPeriod;
+            remainingTime = endTime > block.timestamp ? endTime - block.timestamp : 0;
+        }
+
+        if (remainingTime == 0) {
+            return annualInterestRate;
+        }
+
+        // Find the yield rate of the nearest lock period >= remainingTime
+        // This prevents arbitrage by charging at least the rate of the next available stake period
+        uint256 yieldRate = _getYieldRateForDuration(remainingTime);
+
+        // Borrow rate = max(baseRate, yieldRate) to prevent arbitrage
+        return yieldRate > annualInterestRate ? yieldRate : annualInterestRate;
+    }
+
+    /// @notice Get the anti-arbitrage yield rate for a given duration
+    /// @dev Calculates max arbitrage profit using two strategies and takes the maximum:
+    ///      1. Single-period strategy: use one period type repeatedly
+    ///      2. Greedy mixed strategy: fill with highest yield rate first, then lower ones
+    ///      Note: This is an approximation. Perfect solution requires DP (too expensive on-chain).
+    /// @param duration Remaining time available (in seconds)
+    /// @return yieldRate The anti-arbitrage yield rate
+    function _getYieldRateForDuration(uint256 duration) internal view returns (uint256) {
+        if (duration == 0) {
+            return 0;
+        }
+        
+        // Get all supported lock periods and their multipliers from Farm
+        (uint256[] memory lockPeriods, uint16[] memory multipliers) = IFarm(farm).getSupportedLockPeriodsWithMultipliers();
+        
+        uint16 farmAPY = IFarm(farm).currentAPY();
+        uint256 len = lockPeriods.length;
+        
+        if (len == 0) {
+            return 0;
+        }
+        
+        // Calculate yield rates for each period: yieldRate = farmAPY * multiplier / 10000
+        uint256[] memory yieldRates = new uint256[](len);
+        for (uint256 i = 0; i < len; i++) {
+            yieldRates[i] = (uint256(farmAPY) * uint256(multipliers[i])) / 10000;
+        }
+        
+        // Strategy 1: Single-period - find the best single period used repeatedly
+        // Example: 14 days with 7-day period → 2 cycles × 7 days × rate
+        uint256 bestSinglePeriodYield = 0;
+        for (uint256 i = 0; i < len; i++) {
+            if (lockPeriods[i] > 0 && lockPeriods[i] <= duration) {
+                uint256 numCycles = duration / lockPeriods[i];
+                uint256 totalYield = numCycles * lockPeriods[i] * yieldRates[i];
+                if (totalYield > bestSinglePeriodYield) {
+                    bestSinglePeriodYield = totalYield;
+                }
+            }
+        }
+        
+        // Strategy 2: Greedy mixed - sort by yield rate, fill greedily
+        // Sort periods by yield rate descending (bubble sort, acceptable for small arrays)
+        uint256[] memory sortedIndices = new uint256[](len);
+        for (uint256 i = 0; i < len; i++) {
+            sortedIndices[i] = i;
+        }
+        
+        for (uint256 i = 0; i < len; i++) {
+            for (uint256 j = i + 1; j < len; j++) {
+                if (yieldRates[sortedIndices[j]] > yieldRates[sortedIndices[i]]) {
+                    uint256 temp = sortedIndices[i];
+                    sortedIndices[i] = sortedIndices[j];
+                    sortedIndices[j] = temp;
+                }
+            }
+        }
+        
+        // Greedy fill: use highest yield rate periods first
+        uint256 remainingTime = duration;
+        uint256 greedyTotalYield = 0;
+        
+        for (uint256 i = 0; i < len && remainingTime > 0; i++) {
+            uint256 idx = sortedIndices[i];
+            uint256 period = lockPeriods[idx];
+            uint256 yieldRate = yieldRates[idx];
+            
+            if (period == 0 || period > remainingTime) {
+                continue;
+            }
+            
+            uint256 numCycles = remainingTime / period;
+            if (numCycles > 0) {
+                uint256 stakedTime = numCycles * period;
+                greedyTotalYield += yieldRate * stakedTime;
+                remainingTime -= stakedTime;
+            }
+        }
+        
+        // Take the maximum of both strategies
+        uint256 bestTotalYield = bestSinglePeriodYield > greedyTotalYield ? bestSinglePeriodYield : greedyTotalYield;
+        
+        if (bestTotalYield == 0) {
+            return 0;
+        }
+        
+        // Anti-arbitrage rate = bestTotalYield / duration
+        return bestTotalYield / duration;
+    }
+
+    /// @notice Get the current effective interest rate for a specific loan
+    /// @dev Returns both the simple rate and the precise rate based on remaining time
+    /// @param tokenId NFT token ID
+    /// @return effectiveRate Current effective annual interest rate in basis points
+    /// @return baseRate Base annual interest rate in basis points
+    /// @return antiArbitrageRate The anti-arbitrage rate based on best staking strategy
+    /// @return remainingTime Remaining time until loan due date
+    function getLoanEffectiveRate(uint256 tokenId) external view returns (
+        uint256 effectiveRate,
+        uint256 baseRate,
+        uint256 antiArbitrageRate,
+        uint256 remainingTime
+    ) {
+        Loan storage loan = loans[tokenId];
+        require(loan.active, "FarmLend: no active loan");
+        
+        baseRate = annualInterestRate;
+        
+        // Calculate remaining time
+        if (block.timestamp >= loan.endTime) {
+            remainingTime = 0;
+        } else {
+            remainingTime = loan.endTime - block.timestamp;
+        }
+        
+        // Get anti-arbitrage rate based on max completable stake period
+        antiArbitrageRate = _getYieldRateForDuration(remainingTime);
+        
+        // Use the precise calculation
+        effectiveRate = _getEffectiveInterestRateForLoan(tokenId);
+    }
+
+    /// @notice Estimate effective interest rate for a potential borrow before actually borrowing
+    /// @dev Borrow rate = max(baseRate, antiArbitrageRate) - no arbitrage possible
+    /// @param tokenId NFT token ID (must have active stake)
+    /// @return estimatedRate Estimated annual interest rate in basis points
+    /// @return antiArbitrageRate The anti-arbitrage rate based on max completable stake period
+    /// @return remainingTime Remaining time until NFT unlock
+    function estimateBorrowRate(uint256 tokenId) external view returns (
+        uint256 estimatedRate,
+        uint256 antiArbitrageRate,
+        uint256 remainingTime
+    ) {
+        IFarm.StakeRecord memory record = nftManager.getStakeRecord(tokenId);
+        require(record.active, "FarmLend: stake not active");
+        
+        // Calculate NFT unlock time (same as loan.endTime would be)
+        uint256 endTime = record.startTime + record.lockPeriod;
+        require(endTime > block.timestamp, "FarmLend: NFT already unlocked");
+        
+        remainingTime = endTime - block.timestamp;
+        
+        // Get anti-arbitrage rate based on max completable stake period
+        antiArbitrageRate = _getYieldRateForDuration(remainingTime);
+        
+        // Borrow rate = max(baseRate, antiArbitrageRate)
+        estimatedRate = antiArbitrageRate > annualInterestRate ? antiArbitrageRate : annualInterestRate;
     }
 
     /// @notice View current accrued penalty (including from lastPenaltyAccrualTime to now)
@@ -524,7 +710,7 @@ contract FarmLend is Initializable, AccessControlUpgradeable, ReentrancyGuardUpg
         require(amount > 0, "FarmLend: zero amount");
 
         // Accrue interest and penalty up to now at first
-        _accrueInterest(loan);
+        _accrueInterest(tokenId, loan);
         _accruePenalty(loan);
         // Overdue check: if current time exceeds loanGracePeriod, user cannot operate
         require(block.timestamp < loan.endTime + loanGracePeriod, "FarmLend: loan overdue, cannot repay");
@@ -611,8 +797,8 @@ contract FarmLend is Initializable, AccessControlUpgradeable, ReentrancyGuardUpg
     }
 
     /// @notice Accrue interest for a loan (internal use)
-    /// @dev Uses simple interest based on annual rate
-    function _accrueInterest(Loan storage loan) internal {
+    /// @dev When dynamicRateEnabled, uses stake yield rate from Farm
+    function _accrueInterest(uint256 tokenId, Loan storage loan) internal {
         if (!loan.active) return;
 
         // Calculate interest since last accrual
@@ -625,8 +811,11 @@ contract FarmLend is Initializable, AccessControlUpgradeable, ReentrancyGuardUpg
 
         uint256 timeElapsed = block.timestamp - from;
 
-        // Simple interest: principal * annualRate * timeElapsed / (10000 * 365 days)
-        uint256 interestAccrued = (loan.borrowedAmount * annualInterestRate * timeElapsed) / (10000 * 365 days);
+        // Get effective interest rate (reads stake APY from Farm when enabled)
+        uint256 effectiveRate = _getEffectiveInterestRateForLoan(tokenId);
+
+        // Simple interest: principal * effectiveRate * timeElapsed / (10000 * 365 days)
+        uint256 interestAccrued = (loan.borrowedAmount * effectiveRate * timeElapsed) / (10000 * 365 days);
 
         loan.accruedInterest += interestAccrued;
         loan.lastInterestAccrualTime = block.timestamp;
@@ -713,7 +902,7 @@ contract FarmLend is Initializable, AccessControlUpgradeable, ReentrancyGuardUpg
         require(loan.active, "FarmLend: no active loan");
 
         // 1. Accrue interest and penalty first to get accurate total debt
-        _accrueInterest(loan);
+        _accrueInterest(tokenId, loan);
         _accruePenalty(loan);
 
         // 2. Get total debt (principal + interest + penalty)

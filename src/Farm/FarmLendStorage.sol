@@ -41,9 +41,10 @@ abstract contract FarmLendStorage is IFarmLend {
     /// @notice Penalty Ratio in basis points per day (e.g. 50 = 0.5% per day)
     uint256 public penaltyRatio = 50;
 
-    /// @notice Annual interest rate in basis points (e.g. 1000 = 10% APR)
-    /// @dev Interest is calculated per second using simple interest
-    uint256 public annualInterestRate = 1000; // 10% APR default
+    /// @notice Base annual interest rate in basis points (e.g. 1000 = 10% APR)
+    /// @dev Actual borrow rate = max(baseRate, stakeYieldRate from Farm)
+    ///      This prevents arbitrage by matching borrow cost to stake reward
+    uint256 public annualInterestRate = 1000; // 10% APR default (minimum rate)
 
     /// @notice Grace period after due date before admin can seize NFT
     uint256 public loanGracePeriod = 7 days; // 7 days grace period after due date
@@ -59,6 +60,6 @@ abstract contract FarmLendStorage is IFarmLend {
     /// @dev Prevents dust loans that may become problematic after liquidation
     uint256 public minBorrowAmount = 20e6; // 20 PUSD worth minimum
 
-    // PlaceHolder
-    uint256[47] private __gap;
+    // PlaceHolder (increased for removed dynamic rate variables)
+    uint256[50] private __gap;
 }

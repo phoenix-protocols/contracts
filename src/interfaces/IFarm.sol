@@ -118,6 +118,12 @@ interface IFarm {
 
     function onNFTBurn(address owner, uint256 tokenId) external;
 
+    /// @notice Get current base APY in basis points
+    function currentAPY() external view returns (uint16);
+
+    /// @notice Get reward multiplier for a specific lock period
+    function lockPeriodMultipliers(uint256 lockPeriod) external view returns (uint16);
+
     function pause() external;
 
     function unpause() external;
