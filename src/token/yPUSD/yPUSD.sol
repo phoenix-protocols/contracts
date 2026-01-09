@@ -69,6 +69,15 @@ contract yPUSD is
     }
 
     /**
+     * @dev Override decimalsOffset to add 1000 virtual shares for inflation attack protection
+     *      This makes donation attacks unprofitable by ensuring attackers lose ~50%+ of donated funds
+     *      to the virtual shares. With offset=3, virtual shares = 10^3 = 1000.
+     */
+    function _decimalsOffset() internal view virtual override returns (uint8) {
+        return 3;
+    }
+
+    /**
      * @dev Override maxDeposit to enforce cap
      */
     function maxDeposit(address) public view virtual override returns (uint256) {
