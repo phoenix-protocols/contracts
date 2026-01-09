@@ -103,6 +103,57 @@ simulate_deployment() {
     echo -e "${GREEN}✓ Simulation complete${NC}"
 }
 
+# Update ABIs from compiled output
+update_abis() {
+    echo -e "${BLUE}========================================${NC}"
+    echo -e "${BLUE}Updating ABI files${NC}"
+    echo -e "${BLUE}========================================${NC}"
+
+    # Check if jq is installed
+    if ! command -v jq &> /dev/null; then
+        echo -e "${RED}Error: jq is not installed. Install with: brew install jq${NC}"
+        exit 1
+    fi
+
+    # Build first to ensure ABIs are up to date
+    echo -e "${GREEN}Building contracts...${NC}"
+    forge build
+
+    # Create abi directory if it doesn't exist
+    mkdir -p abi
+
+    # Contract mappings: name:source_path (using : as delimiter)
+    local contracts="
+        Farm:Farm.sol/FarmUpgradeable
+        FarmLend:FarmLend.sol/FarmLend
+        MessageManager:MessageManager.sol/MessageManager
+        NFTManager:NFTManager.sol/NFTManager
+        PUSD:PUSD.sol/PUSD
+        PUSDOracle:PUSDOracle.sol/PUSDOracleUpgradeable
+        ReferralRewardManager:ReferralRewardManager.sol/ReferralRewardManager
+        Vault:Vault.sol/Vault
+        yPUSD:yPUSD.sol/yPUSD
+    "
+
+    for entry in $contracts; do
+        name="${entry%%:*}"
+        source_path="${entry#*:}"
+        output_file="abi/${name}.json"
+        input_file="out/${source_path}.json"
+
+        if [ -f "$input_file" ]; then
+            jq '.abi' "$input_file" > "$output_file"
+            echo -e "${GREEN}✓ Updated ${output_file}${NC}"
+        else
+            echo -e "${YELLOW}⚠️  ${input_file} not found, skipping${NC}"
+        fi
+    done
+
+    echo -e "${GREEN}========================================${NC}"
+    echo -e "${GREEN}✓ ABI update complete!${NC}"
+    echo -e "${GREEN}========================================${NC}"
+}
+
 # Show usage
 show_usage() {
     echo "Usage: $0 [command] [chain]"
@@ -111,6 +162,7 @@ show_usage() {
     echo "  deploy [chain]    Deploy core protocol to specific chain or all chains"
     echo "  bridge [chain]    Deploy MessageManager (cross-chain bridge) to a chain"
     echo "  simulate [chain]  Simulate deployment (dry run)"
+    echo "  abi               Update ABI files from compiled contracts"
     echo "  list              List supported chains"
     echo ""
     echo "Chains:"
@@ -221,6 +273,9 @@ case $1 in
         fi
         IFS='|' read -r rpc_url api_key verify_url <<< "$config"
         simulate_deployment "$2" "$rpc_url"
+        ;;
+    abi)
+        update_abis
         ;;
     list)
         echo "Supported Chains:"
