@@ -47,8 +47,8 @@ optimism = { key = "${OPSCAN_API_KEY}", url = "https://api-optimistic.etherscan.
 # RPC Endpoints
 # ============================================
 [rpc_endpoints]
-bsc_testnet = "${RPC_URL_BSC_TESTNET}"
-arbitrum_sepolia = "${RPC_URL_ARBITRUM_SEPOLIA}"
+bsc_testnet = "${RPC_BSC_TESTNET}"
+arbitrum_sepolia = "${RPC_ARB_SEPOLIA}"
 base_sepolia = "${RPC_URL_BASE_SEPOLIA}"
 sepolia = "${RPC_URL_SEPOLIA}"
 

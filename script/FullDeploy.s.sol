@@ -32,7 +32,7 @@ import {IERC20} from "@openzeppelin/contracts/token/ERC20/IERC20.sol";
  * 5. PUSDOracle (depends on Vault, PUSD)
  * 6. Farm (depends on PUSD, yPUSD, Vault)
  * 7. FarmLend (depends on NFTManager, Vault, PUSDOracle, Farm)
- * 8. ReferralRewardManager (depends on yPUSD)
+ * 8. ReferralRewardManager (depends on PUSD)
  * 9. MessageManager (depends on Farm)
  */
 contract FullDeploy is Script {
@@ -105,8 +105,8 @@ contract FullDeploy is Script {
         farmLend = _deployFarmLend(admin, address(nftManager), address(vault), address(oracle), address(farm));
         console.log("FarmLend deployed at:", address(farmLend));
 
-        // 8. Deploy ReferralRewardManager (depends on yPUSD)
-        referralManager = _deployReferral(admin, address(ypusd));
+        // 8. Deploy ReferralRewardManager (depends on PUSD)
+        referralManager = _deployReferral(admin, address(pusd));
         console.log("ReferralRewardManager deployed at:", address(referralManager));
 
         // 9. Deploy MessageManager (depends on Farm as poolManager)
@@ -268,13 +268,13 @@ contract FullDeploy is Script {
         return FarmLend(address(proxy));
     }
 
-    function _deployReferral(address admin_, address ypusd_) internal returns (ReferralRewardManager) {
+    function _deployReferral(address admin_, address pusd_) internal returns (ReferralRewardManager) {
         // Deploy impl with CREATE2
         bytes32 implSalt = _implSalt("Referral");
         ReferralRewardManager impl = new ReferralRewardManager{salt: implSalt}();
         
         // Deploy proxy with CREATE2
-        bytes memory initData = abi.encodeCall(ReferralRewardManager.initialize, (admin_, ypusd_));
+        bytes memory initData = abi.encodeCall(ReferralRewardManager.initialize, (admin_, pusd_));
         bytes32 proxySalt = _proxySalt("Referral");
         ERC1967Proxy proxy = new ERC1967Proxy{salt: proxySalt}(address(impl), initData);
         

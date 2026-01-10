@@ -17,8 +17,6 @@ import "../interfaces/IPUSDOracle.sol";
 contract FarmLend is Initializable, AccessControlUpgradeable, ReentrancyGuardUpgradeable, UUPSUpgradeable, FarmLendStorage {
     using SafeERC20 for IERC20;
 
-    uint256 public constant MAX_PRICE_AGE = 3600; // 1 hour
-
     constructor() {
         _disableInitializers();
     }
@@ -162,9 +160,8 @@ contract FarmLend is Initializable, AccessControlUpgradeable, ReentrancyGuardUpg
 
         // 1. Fetch oracle price
         //    tokenPrice = PUSD per 1 token (1e18 precision)
-        (uint256 tokenPrice, uint256 lastTs) = pusdOracle.getTokenPUSDPrice(debtToken);
-        require(tokenPrice > 0 && lastTs != 0, "FarmLend: invalid debt token price");
-        require(block.timestamp - lastTs <= MAX_PRICE_AGE, "FarmLend: stale debt token price");
+        (uint256 tokenPrice, ) = pusdOracle.getTokenPUSDPrice(debtToken);
+        require(tokenPrice > 0, "FarmLend: invalid debt token price");
 
         // 2. Normalize collateral (PUSD) to 1e18
         //    PUSD uses 6 decimals → scale by 1e12
@@ -216,9 +213,8 @@ contract FarmLend is Initializable, AccessControlUpgradeable, ReentrancyGuardUpg
 
         // 1. Fetch oracle price
         //    tokenPrice = PUSD per 1 token (1e18 precision)
-        (uint256 tokenPrice, uint256 lastTs) = pusdOracle.getTokenPUSDPrice(loan.debtToken);
-        require(tokenPrice > 0 && lastTs != 0, "FarmLend: invalid debt token price");
-        require(block.timestamp - lastTs <= MAX_PRICE_AGE, "FarmLend: stale debt token price");
+        (uint256 tokenPrice, ) = pusdOracle.getTokenPUSDPrice(loan.debtToken);
+        require(tokenPrice > 0, "FarmLend: invalid debt token price");
 
         // 2. Compute collateral in debt token units (1e18)
         uint256 collateralPUSD_18 = loan.remainingCollateralAmount * 1e12;
@@ -922,9 +918,8 @@ contract FarmLend is Initializable, AccessControlUpgradeable, ReentrancyGuardUpg
 
         // 5. Fetch oracle price:
         //    P = PUSD per 1 debtToken (1e18 precision)
-        (uint256 tokenPrice, uint256 lastTs) = pusdOracle.getTokenPUSDPrice(loan.debtToken);
-        require(tokenPrice > 0 && lastTs != 0, "FarmLend: invalid price");
-        require(block.timestamp - lastTs <= MAX_PRICE_AGE, "FarmLend: stale price");
+        (uint256 tokenPrice, ) = pusdOracle.getTokenPUSDPrice(loan.debtToken);
+        require(tokenPrice > 0, "FarmLend: invalid price");
 
         // 6. Normalize C and B into unified 1e18 precision
         // PUSD is 6 decimals → convert to 1e18

@@ -89,9 +89,8 @@ contract FarmUpgradeable is Initializable, AccessControlUpgradeable, ReentrancyG
     function depositAsset(address asset, uint256 amount) external nonReentrant whenNotPaused {
         require(vault.isValidAsset(asset), "Bad asset");
         // Here amount is asset quantity, not USD, need to convert to pusd amount
-        (uint256 pusdAmount, uint256 referenceTimestamp) = vault.getTokenPUSDValue(asset, amount);
+        (uint256 pusdAmount, ) = vault.getTokenPUSDValue(asset, amount);
         require(pusdAmount > 0, "Invalid amount");
-        require(block.timestamp - referenceTimestamp <= HEALTH_CHECK_TIMEOUT, "Stale oracle");
 
         require(pusdAmount >= minDepositAmount, "Amount below min");
 
@@ -138,9 +137,8 @@ contract FarmUpgradeable is Initializable, AccessControlUpgradeable, ReentrancyG
         require(pusdToken.balanceOf(msg.sender) >= pusdAmount, "Low PUSD");
 
         // Calculate required asset amount for withdrawal (reverse calculation through Oracle)
-        (uint256 assetAmount, uint256 referenceTimestamp) = vault.getPUSDAssetValue(asset, pusdAmount);
+        (uint256 assetAmount, ) = vault.getPUSDAssetValue(asset, pusdAmount);
         require(assetAmount > 0, "Invalid amount");
-        require(block.timestamp - referenceTimestamp <= HEALTH_CHECK_TIMEOUT, "Stale oracle");
 
         // Check if Vault has sufficient asset balance
         (uint256 vaultBalance, ) = vault.getTVL(asset);

@@ -7,9 +7,6 @@ import "../interfaces/IVault.sol";
 import {IFarm} from "../interfaces/IFarm.sol";
 
 abstract contract FarmStorage is IFarm {
-    /* ========== Constants ========== */
-    uint256 public constant HEALTH_CHECK_TIMEOUT = 3600; // 1 hour timeout for oracle data freshness check
-
     /* ========== Contract Dependencies ========== */
 
     IPUSD public pusdToken; // PUSD stablecoin contract

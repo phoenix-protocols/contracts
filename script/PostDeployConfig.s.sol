@@ -168,12 +168,20 @@ contract PostDeployConfig is Script {
         }
 
         if (usdt != address(0)) {
-            vaultContract.addAsset(usdt, "Tether USD");
-            console.log("  Added USDT:", usdt);
+            if (!vaultContract.supportedAssets(usdt)) {
+                vaultContract.addAsset(usdt, "Tether USD");
+                console.log("  Added USDT:", usdt);
+            } else {
+                console.log("  USDT already configured, skipped");
+            }
         }
         if (usdc != address(0)) {
-            vaultContract.addAsset(usdc, "USD Coin");
-            console.log("  Added USDC:", usdc);
+            if (!vaultContract.supportedAssets(usdc)) {
+                vaultContract.addAsset(usdc, "USD Coin");
+                console.log("  Added USDC:", usdc);
+            } else {
+                console.log("  USDC already configured, skipped");
+            }
         }
     }
 
@@ -213,13 +221,23 @@ contract PostDeployConfig is Script {
         uint256 stablecoinMaxPriceAge = 3600 * 25; // 25 hours (with buffer)
 
         if (usdt != address(0) && usdtFeed != address(0)) {
-            oracleContract.addToken(usdt, usdtFeed, stablecoinMaxPriceAge);
-            console.log("  Added USDT with Chainlink feed:", usdtFeed);
+            (address existingFeed, ) = oracleContract.tokens(usdt);
+            if (existingFeed == address(0)) {
+                oracleContract.addToken(usdt, usdtFeed, stablecoinMaxPriceAge);
+                console.log("  Added USDT with Chainlink feed:", usdtFeed);
+            } else {
+                console.log("  USDT Oracle already configured, skipped");
+            }
         }
 
         if (usdc != address(0) && usdcFeed != address(0)) {
-            oracleContract.addToken(usdc, usdcFeed, stablecoinMaxPriceAge);
-            console.log("  Added USDC with Chainlink feed:", usdcFeed);
+            (address existingFeed, ) = oracleContract.tokens(usdc);
+            if (existingFeed == address(0)) {
+                oracleContract.addToken(usdc, usdcFeed, stablecoinMaxPriceAge);
+                console.log("  Added USDC with Chainlink feed:", usdcFeed);
+            } else {
+                console.log("  USDC Oracle already configured, skipped");
+            }
         }
 
         // Send initial heartbeat to Vault (CRITICAL for deposits/withdrawals to work)

@@ -14,14 +14,14 @@ contract ReferralRewardManagerV2 is ReferralRewardManager {
 }
 
 abstract contract ReferralRewardManager_Deployer_Base {
-    function _deploy(address admin_, address ypusdToken_, bytes32 salt) internal returns (ReferralRewardManager manager) {
+    function _deploy(address admin_, address pusdToken_, bytes32 salt) internal returns (ReferralRewardManager manager) {
         ReferralRewardManager impl = new ReferralRewardManager();
 
         bytes memory initData = abi.encodeCall(
             ReferralRewardManager.initialize,
             (
                 admin_,
-                ypusdToken_
+                pusdToken_
             )
         );
 

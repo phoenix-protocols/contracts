@@ -10,7 +10,7 @@ import {ReferralRewardManager_Deployer_Base, ReferralRewardManagerV2} from "scri
 
 contract ReferralRewardManagerTest is Test, ReferralRewardManager_Deployer_Base {
     ReferralRewardManager public manager;
-    ERC20Mock public ypusd;
+    ERC20Mock public pusd;
 
     address admin = address(0xA11CE);
     address rewardManager = address(0xBEEF);
@@ -20,9 +20,9 @@ contract ReferralRewardManagerTest is Test, ReferralRewardManager_Deployer_Base 
     address user3 = address(0x3333);
     address user4 = address(0x4444);
 
-    uint256 constant INITIAL_BALANCE = 1_000_000 * 1e6; // 1M yPUSD
-    uint256 constant DEFAULT_MIN_CLAIM = 1 * 1e6; // 1 yPUSD
-    uint256 constant DEFAULT_MAX_REWARD = 10000 * 1e6; // 10000 yPUSD
+    uint256 constant INITIAL_BALANCE = 1_000_000 * 1e6; // 1M PUSD
+    uint256 constant DEFAULT_MIN_CLAIM = 1 * 1e6; // 1 PUSD
+    uint256 constant DEFAULT_MAX_REWARD = 10000 * 1e6; // 10000 PUSD
     uint16 constant DEFAULT_MAX_REFERRALS = 1000;
 
     bytes32 PAUSER_ROLE;
@@ -54,12 +54,12 @@ contract ReferralRewardManagerTest is Test, ReferralRewardManager_Deployer_Base 
     }
 
     function setUp() public {
-        // Deploy mock yPUSD token
-        ypusd = new ERC20Mock("Yield Phoenix USD", "yPUSD", 6);
+        // Deploy mock PUSD token
+        pusd = new ERC20Mock("Phoenix USD", "PUSD", 6);
 
         // Deploy using base deployer
         bytes32 salt = bytes32(0);
-        manager = _deploy(admin, address(ypusd), salt);
+        manager = _deploy(admin, address(pusd), salt);
 
         // Setup roles
         PAUSER_ROLE = manager.PAUSER_ROLE();
@@ -73,16 +73,16 @@ contract ReferralRewardManagerTest is Test, ReferralRewardManager_Deployer_Base 
         manager.grantRole(PAUSER_ROLE, pauser);
         vm.stopPrank();
 
-        // Mint yPUSD to users and admin for testing
-        ypusd.mint(admin, INITIAL_BALANCE);
-        ypusd.mint(user1, INITIAL_BALANCE);
-        ypusd.mint(user2, INITIAL_BALANCE);
+        // Mint PUSD to users and admin for testing
+        pusd.mint(admin, INITIAL_BALANCE);
+        pusd.mint(user1, INITIAL_BALANCE);
+        pusd.mint(user2, INITIAL_BALANCE);
     }
 
     // ==================== Initialization Tests ====================
 
     function test_InitializeState() public view {
-        assertEq(address(manager.ypusdToken()), address(ypusd));
+        assertEq(address(manager.pusdToken()), address(pusd));
         assertTrue(manager.hasRole(DEFAULT_ADMIN_ROLE, admin));
         assertTrue(manager.hasRole(PAUSER_ROLE, admin));
         assertTrue(manager.hasRole(REWARD_MANAGER_ROLE, admin));
@@ -98,7 +98,7 @@ contract ReferralRewardManagerTest is Test, ReferralRewardManager_Deployer_Base 
 
     function test_InitializeOnlyOnce() public {
         vm.expectRevert();
-        manager.initialize(admin, address(ypusd));
+        manager.initialize(admin, address(pusd));
     }
 
     function test_InitializeRevertInvalidAdmin() public {
@@ -106,13 +106,13 @@ contract ReferralRewardManagerTest is Test, ReferralRewardManager_Deployer_Base 
         vm.expectRevert("Invalid admin address");
         new ERC1967Proxy(
             address(impl),
-            abi.encodeCall(impl.initialize, (address(0), address(ypusd)))
+            abi.encodeCall(impl.initialize, (address(0), address(pusd)))
         );
     }
 
     function test_InitializeRevertInvalidToken() public {
         ReferralRewardManager impl = new ReferralRewardManager();
-        vm.expectRevert("Invalid yPUSD address");
+        vm.expectRevert("Invalid PUSD address");
         new ERC1967Proxy(
             address(impl),
             abi.encodeCall(impl.initialize, (admin, address(0)))
@@ -575,7 +575,7 @@ contract ReferralRewardManagerTest is Test, ReferralRewardManager_Deployer_Base 
     function test_ClaimReward() public {
         // Fund the reward pool
         vm.startPrank(admin);
-        ypusd.approve(address(manager), 1000 * 1e6);
+        pusd.approve(address(manager), 1000 * 1e6);
         manager.fundRewardPool(1000 * 1e6);
         vm.stopPrank();
 
@@ -590,14 +590,14 @@ contract ReferralRewardManagerTest is Test, ReferralRewardManager_Deployer_Base 
         manager.batchAddRewards(recordIds, users, amounts);
 
         // Claim
-        uint256 balanceBefore = ypusd.balanceOf(user1);
+        uint256 balanceBefore = pusd.balanceOf(user1);
 
         vm.prank(user1);
         vm.expectEmit(true, false, false, true);
         emit RewardClaimed(user1, 100 * 1e6);
         manager.claimReward();
 
-        assertEq(ypusd.balanceOf(user1), balanceBefore + 100 * 1e6);
+        assertEq(pusd.balanceOf(user1), balanceBefore + 100 * 1e6);
         assertEq(manager.pendingRewards(user1), 0);
         assertEq(manager.totalClaimedRewards(user1), 100 * 1e6);
         assertEq(manager.totalClaimedRewardsGlobal(), 100 * 1e6);
@@ -639,7 +639,7 @@ contract ReferralRewardManagerTest is Test, ReferralRewardManager_Deployer_Base 
     function test_ClaimReward_RevertWhenPaused() public {
         // Fund and add rewards
         vm.startPrank(admin);
-        ypusd.approve(address(manager), 1000 * 1e6);
+        pusd.approve(address(manager), 1000 * 1e6);
         manager.fundRewardPool(1000 * 1e6);
         vm.stopPrank();
 
@@ -665,14 +665,14 @@ contract ReferralRewardManagerTest is Test, ReferralRewardManager_Deployer_Base 
 
     function test_FundRewardPool() public {
         vm.startPrank(user1);
-        ypusd.approve(address(manager), 500 * 1e6);
+        pusd.approve(address(manager), 500 * 1e6);
 
         vm.expectEmit(true, false, false, true);
         emit RewardPoolFunded(user1, 500 * 1e6);
         manager.fundRewardPool(500 * 1e6);
         vm.stopPrank();
 
-        assertEq(ypusd.balanceOf(address(manager)), 500 * 1e6);
+        assertEq(pusd.balanceOf(address(manager)), 500 * 1e6);
     }
 
     function test_FundRewardPool_RevertZeroAmount() public {
@@ -692,15 +692,15 @@ contract ReferralRewardManagerTest is Test, ReferralRewardManager_Deployer_Base 
     function test_WithdrawFunds() public {
         // Fund first
         vm.startPrank(admin);
-        ypusd.approve(address(manager), 1000 * 1e6);
+        pusd.approve(address(manager), 1000 * 1e6);
         manager.fundRewardPool(1000 * 1e6);
 
-        uint256 balanceBefore = ypusd.balanceOf(admin);
+        uint256 balanceBefore = pusd.balanceOf(admin);
         manager.withdrawFunds(500 * 1e6);
         vm.stopPrank();
 
-        assertEq(ypusd.balanceOf(admin), balanceBefore + 500 * 1e6);
-        assertEq(ypusd.balanceOf(address(manager)), 500 * 1e6);
+        assertEq(pusd.balanceOf(admin), balanceBefore + 500 * 1e6);
+        assertEq(pusd.balanceOf(address(manager)), 500 * 1e6);
     }
 
     function test_WithdrawFunds_RevertZeroAmount() public {
@@ -816,7 +816,7 @@ contract ReferralRewardManagerTest is Test, ReferralRewardManager_Deployer_Base 
 
         // Fund and claim some
         vm.startPrank(admin);
-        ypusd.approve(address(manager), 1000 * 1e6);
+        pusd.approve(address(manager), 1000 * 1e6);
         manager.fundRewardPool(1000 * 1e6);
         vm.stopPrank();
 
@@ -837,7 +837,7 @@ contract ReferralRewardManagerTest is Test, ReferralRewardManager_Deployer_Base 
     function test_GetRewardPoolStatus() public {
         // Fund
         vm.startPrank(admin);
-        ypusd.approve(address(manager), 1000 * 1e6);
+        pusd.approve(address(manager), 1000 * 1e6);
         manager.fundRewardPool(1000 * 1e6);
         vm.stopPrank();
 
@@ -871,7 +871,7 @@ contract ReferralRewardManagerTest is Test, ReferralRewardManager_Deployer_Base 
 
         // Fund and claim
         vm.startPrank(admin);
-        ypusd.approve(address(manager), 1000 * 1e6);
+        pusd.approve(address(manager), 1000 * 1e6);
         manager.fundRewardPool(1000 * 1e6);
         vm.stopPrank();
 
@@ -919,7 +919,7 @@ contract ReferralRewardManagerTest is Test, ReferralRewardManager_Deployer_Base 
 
         // 2. Admin funds the reward pool
         vm.startPrank(admin);
-        ypusd.approve(address(manager), 10000 * 1e6);
+        pusd.approve(address(manager), 10000 * 1e6);
         manager.fundRewardPool(10000 * 1e6);
         vm.stopPrank();
 
@@ -934,13 +934,13 @@ contract ReferralRewardManagerTest is Test, ReferralRewardManager_Deployer_Base 
         manager.batchAddRewards(recordIds, users, amounts);
 
         // 4. User2 claims rewards
-        uint256 user2BalanceBefore = ypusd.balanceOf(user2);
+        uint256 user2BalanceBefore = pusd.balanceOf(user2);
         
         vm.prank(user2);
         manager.claimReward();
 
         // Verify
-        assertEq(ypusd.balanceOf(user2), user2BalanceBefore + 500 * 1e6);
+        assertEq(pusd.balanceOf(user2), user2BalanceBefore + 500 * 1e6);
         assertEq(manager.totalClaimedRewards(user2), 500 * 1e6);
 
         // 5. Check system stats
@@ -962,7 +962,7 @@ contract ReferralRewardManagerTest is Test, ReferralRewardManager_Deployer_Base 
 
         // Fund
         vm.startPrank(admin);
-        ypusd.approve(address(manager), 50000 * 1e6);
+        pusd.approve(address(manager), 50000 * 1e6);
         manager.fundRewardPool(50000 * 1e6);
         vm.stopPrank();
 
@@ -1039,7 +1039,7 @@ contract ReferralRewardManagerTest is Test, ReferralRewardManager_Deployer_Base 
     function test_ClaimTwice() public {
         // Fund
         vm.startPrank(admin);
-        ypusd.approve(address(manager), 10000 * 1e6);
+        pusd.approve(address(manager), 10000 * 1e6);
         manager.fundRewardPool(10000 * 1e6);
         vm.stopPrank();
 
