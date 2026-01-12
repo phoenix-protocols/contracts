@@ -30,3 +30,4 @@ lambda/
 .env
 abi/
 broadcast/
+upgrade_verify.sh

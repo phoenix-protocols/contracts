@@ -24,7 +24,7 @@ contract PUSDOracle_Deployer is Script, PUSDOracle_Deployer_Base {
     }
 
     function upgrade() external {
-        address proxyAddr = vm.envAddress("PUSD_ORACLE_PROXY");
+        address proxyAddr = vm.envAddress("ORACLE");
 
         bytes memory initData = ""; // If you have reinitializer, you can encode it here
 

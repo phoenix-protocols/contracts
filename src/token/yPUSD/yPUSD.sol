@@ -63,18 +63,11 @@ contract yPUSD is
 
     /**
      * @dev Override decimals to return 6 (matching PUSD)
+     *      Note: _decimalsOffset() uses default value 0 for 1:1 PUSD:yPUSD ratio
+     *      Inflation attack protection is handled by MIN_INITIAL_SHARES requirement in _deposit
      */
     function decimals() public view virtual override(ERC4626Upgradeable) returns (uint8) {
         return 6;
-    }
-
-    /**
-     * @dev Override decimalsOffset to add 1000 virtual shares for inflation attack protection
-     *      This makes donation attacks unprofitable by ensuring attackers lose ~50%+ of donated funds
-     *      to the virtual shares. With offset=3, virtual shares = 10^3 = 1000.
-     */
-    function _decimalsOffset() internal view virtual override returns (uint8) {
-        return 3;
     }
 
     /**
@@ -115,15 +108,32 @@ contract yPUSD is
     }
 
     /**
-     * @dev Override _deposit to add pause check and cap enforcement
+     * @dev Override _deposit to add pause check, cap enforcement, and inflation attack protection
+     *      When totalSupply < MIN_INITIAL_SHARES, single deposit must be at least MIN_INITIAL_SHARES
+     *      When totalSupply = 0, use 1:1 ratio to prevent DOS via donation attack
      */
     function _deposit(address caller, address receiver, uint256 assets, uint256 shares) internal virtual override whenNotPaused {
-        require(totalSupply() + shares <= cap, "yPUSD: cap exceeded");
+        uint256 currentSupply = totalSupply();
+        
+        // When vault is empty, force 1:1 ratio to prevent DOS via donation
+        // This ignores any PUSD that was directly transferred to the contract
+        if (currentSupply == 0) {
+            shares = assets;  // Override calculated shares with 1:1 ratio
+        }
+        
+        // Inflation attack protection: when supply is low, single deposit must be large enough
+        // This prevents donation attack by ensuring minimum liquidity per deposit
+        if (currentSupply < MIN_INITIAL_SHARES) {
+            require(shares >= MIN_INITIAL_SHARES, "yPUSD: deposit must be at least MIN_INITIAL_SHARES when supply is low");
+        }
+        
+        require(currentSupply + shares <= cap, "yPUSD: cap exceeded");
         super._deposit(caller, receiver, assets, shares);
     }
 
     /**
-     * @dev Override _withdraw to add pause check
+     * @dev Override _withdraw to add pause check and prevent low supply state
+     *      Cannot withdraw to 0 < totalSupply < MIN_INITIAL_SHARES (DOS prevention)
      */
     function _withdraw(
         address caller,
@@ -132,6 +142,13 @@ contract yPUSD is
         uint256 assets,
         uint256 shares
     ) internal virtual override whenNotPaused {
+        uint256 supplyAfter = totalSupply() - shares;
+        // Prevent withdrawal that leaves supply in vulnerable range (0 < supply < MIN_INITIAL_SHARES)
+        // Either withdraw all (supplyAfter = 0) or leave at least MIN_INITIAL_SHARES
+        require(
+            supplyAfter == 0 || supplyAfter >= MIN_INITIAL_SHARES,
+            "yPUSD: withdrawal would leave supply in vulnerable range"
+        );
         super._withdraw(caller, receiver, owner, assets, shares);
     }
 
@@ -284,11 +301,15 @@ contract yPUSD is
 
     /**
      * @notice Get the current exchange rate (assets per share)
+     * @dev With offset=0, this is simply totalAssets / totalSupply
+     *      When totalSupply=0, returns 1e18 (1:1 ratio)
      * @return Exchange rate scaled by 1e18
      */
     function exchangeRate() external view returns (uint256) {
         uint256 supply = totalSupply();
-        if (supply == 0) return 1e18;
+        if (supply == 0) {
+            return 1e18;  // 1:1 before any deposits
+        }
         return (totalAssets() * 1e18) / supply;
     }
 

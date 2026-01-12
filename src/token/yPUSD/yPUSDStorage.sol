@@ -18,6 +18,11 @@ contract yPUSDStorage {
     /// @notice Maximum vesting duration (30 days)
     uint256 public constant MAX_VESTING_DURATION = 30 days;
 
+    /// @notice Minimum initial shares to prevent inflation attack (1000 yPUSD = 1000 * 10^6)
+    /// @dev When totalSupply < MIN_INITIAL_SHARES, deposit must bring it above this threshold
+    ///      This makes donation attacks cost ~1000x the potential profit (0.1% ROI, unprofitable after gas)
+    uint256 public constant MIN_INITIAL_SHARES = 1000 * 1e6;
+
     /* ========== Storage Variables ========== */
     
     /// @notice Maximum total supply of yPUSD shares

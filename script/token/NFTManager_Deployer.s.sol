@@ -24,7 +24,7 @@ contract NFTManager_Deployer is Script, NFTManager_Deployer_Base {
     }
 
     function upgrade() external{
-        address proxyAddr = vm.envAddress("NFTMANAGER_PROXY");
+        address proxyAddr = vm.envAddress("NFT_MANAGER");
 
         bytes memory initData = ""; // If you have reinitializer, you can encode it here
 

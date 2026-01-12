@@ -133,8 +133,11 @@ contract PostDeployConfig is Script {
 
         vm.startBroadcast();
 
-        // Only configure bridge chains
+        // Configure bridge chains
         _configureBridgeChains();
+
+        // Configure fee rates (bridge fee needed for cross-chain from this chain)
+        _configureFeeRates();
 
         vm.stopBroadcast();
 

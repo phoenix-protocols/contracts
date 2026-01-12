@@ -8,6 +8,7 @@ import "@openzeppelin/contracts-upgradeable/proxy/utils/Initializable.sol";
 import "@openzeppelin/contracts-upgradeable/proxy/utils/UUPSUpgradeable.sol";
 import "@openzeppelin/contracts/token/ERC20/utils/SafeERC20.sol";
 import "@openzeppelin/contracts/token/ERC20/IERC20.sol";
+import "@openzeppelin/contracts/token/ERC721/IERC721.sol";
 import "../interfaces/IPUSD.sol";
 import "../interfaces/IyPUSD.sol";
 import "../interfaces/IVault.sol";
@@ -749,7 +750,12 @@ contract FarmUpgradeable is Initializable, AccessControlUpgradeable, ReentrancyG
      * @param tokenId The transferred token ID
      */
     function onNFTTransfer(address from, address to, uint256 tokenId) external {
-        require(msg.sender == _nftManager, "Only NFTManager");
+        require(msg.sender == _nftManager || msg.sender == farmLend, "Only NFTManager or FarmLend");
+        
+        // If called by FarmLend, verify NFT ownership matches
+        if (msg.sender == farmLend) {
+            require(IERC721(_nftManager).ownerOf(tokenId) == to, "NFT ownership mismatch");
+        }
         
         // Remove tokenId from sender's array
         _removeTokenIdFromUser(from, tokenId);

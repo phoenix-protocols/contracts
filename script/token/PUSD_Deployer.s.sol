@@ -23,7 +23,7 @@ contract PUSD_Deployer is Script, PUSD_Deployer_Base {
     }
 
     function upgrade() external{
-        address proxyAddr = vm.envAddress("PUSD_PROXY");
+        address proxyAddr = vm.envAddress("PUSD");
 
         bytes memory initData = ""; // If you have reinitializer, you can encode it here
 

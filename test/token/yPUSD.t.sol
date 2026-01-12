@@ -4,15 +4,24 @@ pragma solidity ^0.8.20;
 import "forge-std/Test.sol";
 import {yPUSD} from "src/token/yPUSD/yPUSD.sol";
 import {yPUSDStorage} from "src/token/yPUSD/yPUSDStorage.sol";
-import {yPUSD_Deployer_Base, yPUSDV2} from "script/token/base/yPUSD_Deployer_Base.sol";
+import {yPUSD_Deployer_Base} from "script/token/base/yPUSD_Deployer_Base.sol";
 import {ERC20Mock} from "../mocks/ERC20Mock.sol";
 import {IERC20} from "@openzeppelin/contracts/token/ERC20/IERC20.sol";
+
+// Test-only V2 contract for upgrade testing
+contract yPUSDV2Test is yPUSD {
+    uint256 public version;
+
+    function setVersion(uint256 v) external onlyRole(DEFAULT_ADMIN_ROLE) {
+        version = v;
+    }
+}
 
 contract yPUSDTest is Test, yPUSD_Deployer_Base {
     bytes32 salt;
 
     yPUSD token;
-    yPUSDV2 tokenV2;
+    yPUSDV2Test tokenV2;
     ERC20Mock pusd;
 
     address admin = address(0xA11CE);
@@ -564,7 +573,9 @@ contract yPUSDTest is Test, yPUSD_Deployer_Base {
 
         // 2. Upgrade to V2
         vm.startPrank(admin);
-        tokenV2 = _upgrade(address(token), "");
+        yPUSDV2Test implV2 = new yPUSDV2Test();
+        token.upgradeToAndCall(address(implV2), "");
+        tokenV2 = yPUSDV2Test(address(token));
         vm.stopPrank();
 
         // 3. State preserved
@@ -580,7 +591,7 @@ contract yPUSDTest is Test, yPUSD_Deployer_Base {
     }
 
     function test_UpgradeOnlyAdmin() public {
-        yPUSDV2 implV2 = new yPUSDV2();
+        yPUSDV2Test implV2 = new yPUSDV2Test();
 
         vm.prank(user);
         vm.expectRevert();

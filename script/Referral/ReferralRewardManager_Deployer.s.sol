@@ -23,7 +23,7 @@ contract ReferralRewardManager_Deployer is Script, ReferralRewardManager_Deploye
     }
 
     function upgrade() external {
-        address proxyAddr = vm.envAddress("REFERRAL_MANAGER_PROXY");
+        address proxyAddr = vm.envAddress("REFERRAL_MANAGER");
 
         bytes memory initData = ""; // If you have reinitializer, you can encode it here
 

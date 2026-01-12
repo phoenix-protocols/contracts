@@ -24,7 +24,7 @@ contract Vault_Deployer is Script, Vault_Deployer_Base {
     }
 
     function upgrade() external{
-        address proxyAddr = vm.envAddress("VAULT_PROXY");
+        address proxyAddr = vm.envAddress("VAULT");
 
         bytes memory initData = ""; // If you have reinitializer, you can encode it here
 
