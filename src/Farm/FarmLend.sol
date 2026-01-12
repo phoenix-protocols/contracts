@@ -514,7 +514,17 @@ contract FarmLend is Initializable, AccessControlUpgradeable, ReentrancyGuardUpg
         uint256 bestTotalYield = bestSinglePeriodYield > greedyTotalYield ? bestSinglePeriodYield : greedyTotalYield;
         
         if (bestTotalYield == 0) {
-            return 0;
+            // Duration is shorter than any lock period, use min period's rate for strict anti-arbitrage
+            // Find the minimum lock period (with non-zero yield) and return its yield rate
+            uint256 minPeriod = type(uint256).max;
+            uint256 minPeriodYieldRate = 0;
+            for (uint256 i = 0; i < len; i++) {
+                if (lockPeriods[i] > 0 && yieldRates[i] > 0 && lockPeriods[i] < minPeriod) {
+                    minPeriod = lockPeriods[i];
+                    minPeriodYieldRate = yieldRates[i];
+                }
+            }
+            return minPeriodYieldRate;
         }
         
         // Anti-arbitrage rate = bestTotalYield / duration
