@@ -182,7 +182,6 @@ contract Vault is Initializable, AccessControlUpgradeable, PausableUpgradeable, 
      * @param amount Deposit amount
      */
     function depositFor(address user, address assetToken, uint256 amount) external nonReentrant whenNotPaused {
-        require(block.timestamp - lastHealthCheck < HEALTH_CHECK_TIMEOUT, "Vault: Oracle system offline");
         require(msg.sender == farm || msg.sender == farmLend, "Vault: Caller is not the farm or farmLend");
         require(supportedAssets[assetToken], "Vault: Unsupported assetToken");
 
@@ -203,9 +202,11 @@ contract Vault is Initializable, AccessControlUpgradeable, PausableUpgradeable, 
      * @param amount Withdrawal amount
      */
     function withdrawTo(address user, address assetToken, uint256 amount) external nonReentrant whenNotPaused {
-        require(block.timestamp - lastHealthCheck < HEALTH_CHECK_TIMEOUT, "Vault: Oracle system offline");
         require(msg.sender == farm || msg.sender == farmLend, "Vault: Caller is not the farm or farmLend");
         require(supportedAssets[assetToken], "Vault: Unsupported assetToken");
+
+        // Check reserve ratio after withdrawal
+        _checkReserveAfterWithdrawal(assetToken, amount);
 
         IERC20(assetToken).safeTransfer(user, amount);
         emit Withdrawn(user, assetToken, amount);
@@ -213,8 +214,10 @@ contract Vault is Initializable, AccessControlUpgradeable, PausableUpgradeable, 
     }
 
     function withdrawPUSDTo(address user, uint256 amount) external nonReentrant whenNotPaused {
-        require(block.timestamp - lastHealthCheck < HEALTH_CHECK_TIMEOUT, "Vault: Oracle system offline");
         require(msg.sender == farm || msg.sender == farmLend, "Vault: Caller is not the farm or farmLend");
+
+        // Check reserve ratio after withdrawal
+        _checkReserveAfterPUSDWithdrawal(amount);
 
         IERC20(pusdToken).safeTransfer(user, amount);
         emit Withdrawn(user, address(pusdToken), amount);
@@ -459,8 +462,8 @@ contract Vault is Initializable, AccessControlUpgradeable, PausableUpgradeable, 
     /* ========== System monitoring and control functions ========== */
 
     /**
-     * @notice Oracle system heartbeat check
-     * @dev Oracle manager calls regularly to prove system is functioning normally
+     * @notice Oracle system heartbeat (kept for compatibility)
+     * @dev Oracle manager can call to update lastHealthCheck, but it no longer blocks operations
      */
     function heartbeat() external {
         require(msg.sender == oracleManager, "Vault: Only Oracle Manager can send heartbeat");
@@ -686,8 +689,9 @@ contract Vault is Initializable, AccessControlUpgradeable, PausableUpgradeable, 
     }
 
     /**
-     * @notice Check system health status
-     * @return true if Oracle system is online and functioning normally
+     * @notice Check system health status (informational only, does not block operations)
+     * @dev Price validity is enforced at PUSDOracle level via maxPriceAge checks
+     * @return true if heartbeat was received within HEALTH_CHECK_TIMEOUT
      */
     function isHealthy() external view returns (bool) {
         return block.timestamp - lastHealthCheck < HEALTH_CHECK_TIMEOUT;
@@ -859,6 +863,98 @@ contract Vault is Initializable, AccessControlUpgradeable, PausableUpgradeable, 
      */
     function getCurrentAdmin() external view returns (address) {
         return singleAdmin;
+    }
+
+    /* ========== Reserve Ratio Protection ========== */
+
+    /**
+     * @notice Set minimum reserve ratio
+     * @dev Admin can adjust reserve ratio (0-10000 basis points)
+     * @param newRatio New minimum reserve ratio in basis points (e.g., 1500 = 15%)
+     */
+    function setMinReserveRatio(uint16 newRatio) external onlyRole(DEFAULT_ADMIN_ROLE) {
+        require(newRatio <= 10000, "Vault: Ratio cannot exceed 100%");
+        uint16 oldRatio = minReserveRatio;
+        minReserveRatio = newRatio;
+        emit MinReserveRatioUpdated(oldRatio, newRatio);
+    }
+
+    /**
+     * @notice Check if reserve ratio is sufficient after asset withdrawal
+     * @dev Internal function to validate reserve ratio before withdrawals
+     * @param assetToken The asset being withdrawn
+     * @param amount The withdrawal amount
+     */
+    function _checkReserveAfterWithdrawal(address assetToken, uint256 amount) internal view {
+        if (minReserveRatio == 0) return; // Skip check if ratio is 0
+
+        // Calculate total TVL after withdrawal
+        uint256 totalTVLAfter = 0;
+        for (uint256 i = 0; i < assetList.length; i++) {
+            address asset = assetList[i];
+            try this.getTVL(asset) returns (uint256, uint256 marketValue) {
+                if (asset == assetToken) {
+                    // Subtract the withdrawal amount's value
+                    uint8 decimals = IERC20Metadata(asset).decimals();
+                    uint256 withdrawValue = 0;
+                    if (oracleManager != address(0)) {
+                        try IPUSDOracle(oracleManager).getTokenUSDPrice(asset) returns (uint256 price, uint256) {
+                            withdrawValue = (amount * price) / (10 ** decimals);
+                        } catch {
+                            withdrawValue = amount * (10 ** (18 - decimals));
+                        }
+                    } else {
+                        withdrawValue = amount * (10 ** (18 - decimals));
+                    }
+                    totalTVLAfter += marketValue > withdrawValue ? marketValue - withdrawValue : 0;
+                } else {
+                    totalTVLAfter += marketValue;
+                }
+            } catch {
+                continue;
+            }
+        }
+
+        // Get total PUSD supply
+        uint256 totalPUSD = IERC20(pusdToken).totalSupply();
+        if (totalPUSD == 0) return; // No PUSD minted, no check needed
+
+        // Convert PUSD to 18 decimals for comparison (PUSD is 6 decimals)
+        uint256 totalPUSD18 = totalPUSD * 1e12;
+
+        // Check reserve ratio: totalTVLAfter >= totalPUSD18 * minReserveRatio / 10000
+        uint256 requiredReserve = (totalPUSD18 * minReserveRatio) / 10000;
+        require(totalTVLAfter >= requiredReserve, "Vault: Reserve ratio too low after withdrawal");
+    }
+
+    /**
+     * @notice Check if reserve ratio is sufficient after PUSD withdrawal
+     * @dev Internal function to validate reserve ratio before PUSD withdrawals
+     * @param amount The PUSD withdrawal amount
+     */
+    function _checkReserveAfterPUSDWithdrawal(uint256 amount) internal view {
+        if (minReserveRatio == 0) return; // Skip check if ratio is 0
+
+        // Get current total TVL
+        uint256 totalTVL = 0;
+        for (uint256 i = 0; i < assetList.length; i++) {
+            try this.getTVL(assetList[i]) returns (uint256, uint256 marketValue) {
+                totalTVL += marketValue;
+            } catch {
+                continue;
+            }
+        }
+
+        // Get total PUSD supply (will decrease after withdrawal/burn)
+        uint256 totalPUSD = IERC20(pusdToken).totalSupply();
+        if (totalPUSD <= amount) return; // All PUSD being withdrawn, no check needed
+
+        // Convert PUSD to 18 decimals for comparison (PUSD is 6 decimals)
+        uint256 totalPUSD18 = (totalPUSD - amount) * 1e12; // After withdrawal
+
+        // Check reserve ratio: totalTVL >= totalPUSD18 * minReserveRatio / 10000
+        uint256 requiredReserve = (totalPUSD18 * minReserveRatio) / 10000;
+        require(totalTVL >= requiredReserve, "Vault: Reserve ratio too low after withdrawal");
     }
 
     // ---------- ERC721 Receiver implementation ----------

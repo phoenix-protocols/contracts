@@ -82,6 +82,12 @@ contract VaultStorage {
     event RewardCompounded(uint256 amount, uint256 remainingReserve);
     event InsufficientRewardReserve(uint256 required, uint256 available);
 
+    /* ========== Reserve Ratio Protection ========== */
+    uint16 public minReserveRatio; // Minimum reserve ratio (basis points, e.g., 1500 = 15%)
+
+    /* ========== Reserve Ratio Events ========== */
+    event MinReserveRatioUpdated(uint16 oldRatio, uint16 newRatio);
+
     // PlaceHolder
-    uint256[49] private __gap;
+    uint256[48] private __gap;
 }
