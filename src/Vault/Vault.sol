@@ -92,18 +92,6 @@ contract Vault is Initializable, AccessControlUpgradeable, PausableUpgradeable, 
     }
 
     /**
-     * @notice Set FarmLend contract address
-     * @dev Can only be set once to ensure system security
-     * @param _farmLend FarmLend contract address
-     */
-    function setFarmLendAddress(address _farmLend) external onlyRole(DEFAULT_ADMIN_ROLE) {
-        require(farmLend == address(0), "Vault: FarmLend address already set");
-        require(_farmLend != address(0), "Vault: Invalid FarmLend address");
-        farmLend = _farmLend;
-        emit FarmLendAddressSet(_farmLend);
-    }
-
-    /**
      * @notice Set Oracle manager contract address
      * @dev Can only be set once, responsible for system health checks and price feeds
      * @param _oracleManager Oracle manager contract address
@@ -183,7 +171,7 @@ contract Vault is Initializable, AccessControlUpgradeable, PausableUpgradeable, 
      */
     function depositFor(address user, address assetToken, uint256 amount) external nonReentrant whenNotPaused {
         require(block.timestamp - lastHealthCheck < HEALTH_CHECK_TIMEOUT, "Vault: Oracle system offline");
-        require(msg.sender == farm || msg.sender == farmLend, "Vault: Caller is not the farm or farmLend");
+        require(msg.sender == farm, "Vault: Caller is not the farm");
         require(supportedAssets[assetToken], "Vault: Unsupported assetToken");
 
         // Check allowance amount, provide friendly error message
@@ -204,7 +192,7 @@ contract Vault is Initializable, AccessControlUpgradeable, PausableUpgradeable, 
      */
     function withdrawTo(address user, address assetToken, uint256 amount) external nonReentrant whenNotPaused {
         require(block.timestamp - lastHealthCheck < HEALTH_CHECK_TIMEOUT, "Vault: Oracle system offline");
-        require(msg.sender == farm || msg.sender == farmLend, "Vault: Caller is not the farm or farmLend");
+        require(msg.sender == farm, "Vault: Caller is not the farm");
         require(supportedAssets[assetToken], "Vault: Unsupported assetToken");
 
         IERC20(assetToken).safeTransfer(user, amount);
@@ -214,7 +202,7 @@ contract Vault is Initializable, AccessControlUpgradeable, PausableUpgradeable, 
 
     function withdrawPUSDTo(address user, uint256 amount) external nonReentrant whenNotPaused {
         require(block.timestamp - lastHealthCheck < HEALTH_CHECK_TIMEOUT, "Vault: Oracle system offline");
-        require(msg.sender == farm || msg.sender == farmLend, "Vault: Caller is not the farm or farmLend");
+        require(msg.sender == farm, "Vault: Caller is not the farm");
 
         IERC20(pusdToken).safeTransfer(user, amount);
         emit Withdrawn(user, address(pusdToken), amount);
@@ -305,12 +293,12 @@ contract Vault is Initializable, AccessControlUpgradeable, PausableUpgradeable, 
 
     /**
      * @notice Add fee
-     * @dev Called by Farm or FarmLend contract to record transaction fees
+     * @dev Called by Farm contract to record transaction fees
      * @param assetToken Fee assetToken address
      * @param amount Fee amount
      */
     function addFee(address assetToken, uint256 amount) external {
-        require(msg.sender == farm || msg.sender == farmLend, "Vault: Caller is not the farm or farmLend");
+        require(msg.sender == farm, "Vault: Caller is not the farm");
         require(supportedAssets[assetToken] || assetToken == pusdToken, "Vault: Unsupported assetToken");
         require(amount > 0, "Vault: Invalid fee amount");
         accumulatedFees[assetToken] += amount;
@@ -475,17 +463,6 @@ contract Vault is Initializable, AccessControlUpgradeable, PausableUpgradeable, 
         IFarm.StakeRecord memory r = nftManager.getStakeRecord(tokenId);
         require(r.active, "NFTManager: stake already withdrawn");
         require(block.timestamp >= r.startTime + r.lockPeriod + MAX_DELAY_PERIOD, "Vault: stake is still locked");
-
-        nftManager.safeTransferFrom(address(this), to, tokenId);
-
-        emit NFTWithdrawn(to, tokenId);
-    }
-
-    function releaseNFT(uint256 tokenId, address to) external {
-        require(msg.sender == farmLend, "Not From FarmLend");
-        NFTManager nftManager = NFTManager(_nftManager);
-        require(nftManager.exists(tokenId));
-        require(nftManager.ownerOf(tokenId) == address(this));
 
         nftManager.safeTransferFrom(address(this), to, tokenId);
 

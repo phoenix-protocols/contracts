@@ -7,7 +7,7 @@ A comprehensive DeFi ecosystem built on Ethereum/Arbitrum, featuring stablecoin 
 Phoenix Protocol provides a suite of smart contracts for:
 - **PUSD Stablecoin** - A collateral-backed stablecoin
 - **Vault** - Secure asset storage with yield generation
-- **Farm & FarmLend** - Yield farming and lending operations
+- **Farm** - Yield farming operations
 - **Cross-Chain Bridge** - Seamless asset transfers between chains
 - **Referral System** - Multi-tier reward distribution
 - **NFT Manager** - NFT-based user identity and privileges
@@ -46,7 +46,6 @@ Phoenix Protocol provides a suite of smart contracts for:
 | `yPUSD` | ERC4626 yield-bearing vault token |
 | `Vault` | Collateral management and liquidation |
 | `Farm` | Yield farming with staking rewards |
-| `FarmLend` | Lending protocol integration |
 | `PUSDOracle` | Price feed oracle |
 | `MessageManager` | Cross-chain message handling |
 | `NFTManager` | User NFT identity management |

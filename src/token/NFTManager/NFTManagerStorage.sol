@@ -10,7 +10,6 @@ contract NFTManagerStorage {
 
     address public farm;
     address public vault;
-    address public farmLend;
 
     // tokenId => IFarm.StakeRecord
     mapping(uint256 => IFarm.StakeRecord) internal _stakeRecords;
@@ -30,7 +29,6 @@ contract NFTManagerStorage {
     event MinterRoleLocked(address indexed account, address indexed admin);
     event FarmUpdated(address indexed newFarm);
     event VaultUpdated(address indexed newVault);
-    event FarmLendUpdated(address indexed newFarmLend);
 
     // Reserved storage gap for future upgrades
     uint256[50] private __gap;

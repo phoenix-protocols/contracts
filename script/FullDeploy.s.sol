@@ -10,7 +10,6 @@ import {yPUSD} from "src/token/yPUSD/yPUSD.sol";
 import {NFTManager} from "src/token/NFTManager/NFTManager.sol";
 import {Vault} from "src/Vault/Vault.sol";
 import {FarmUpgradeable} from "src/Farm/Farm.sol";
-import {FarmLend} from "src/Farm/FarmLend.sol";
 import {PUSDOracleUpgradeable} from "src/Oracle/PUSDOracle.sol";
 import {ReferralRewardManager} from "src/Referral/ReferralRewardManager.sol";
 import {MessageManager} from "src/Bridge/MessageManager.sol";
@@ -31,8 +30,7 @@ import {IERC20} from "@openzeppelin/contracts/token/ERC20/IERC20.sol";
  * 4. Vault (depends on PUSD, NFTManager)
  * 5. PUSDOracle (depends on Vault, PUSD)
  * 6. Farm (depends on PUSD, yPUSD, Vault)
- * 7. FarmLend (depends on NFTManager, Vault, PUSDOracle, Farm)
- * 8. ReferralRewardManager (depends on PUSD)
+ * 7. ReferralRewardManager (depends on PUSD)
  * 9. MessageManager (depends on Farm)
  */
 contract FullDeploy is Script {
@@ -42,7 +40,6 @@ contract FullDeploy is Script {
     NFTManager public nftManager;
     Vault public vault;
     FarmUpgradeable public farm;
-    FarmLend public farmLend;
     PUSDOracleUpgradeable public oracle;
     ReferralRewardManager public referralManager;
     MessageManager public messageManager;
@@ -101,15 +98,11 @@ contract FullDeploy is Script {
         farm = _deployFarm(admin, address(pusd), address(ypusd), address(vault));
         console.log("Farm deployed at:", address(farm));
 
-        // 7. Deploy FarmLend (depends on NFTManager, Vault, Oracle, Farm)
-        farmLend = _deployFarmLend(admin, address(nftManager), address(vault), address(oracle), address(farm));
-        console.log("FarmLend deployed at:", address(farmLend));
-
-        // 8. Deploy ReferralRewardManager (depends on PUSD)
+        // 7. Deploy ReferralRewardManager (depends on PUSD)
         referralManager = _deployReferral(admin, address(pusd));
         console.log("ReferralRewardManager deployed at:", address(referralManager));
 
-        // 9. Deploy MessageManager (depends on Farm as poolManager)
+        // 8. Deploy MessageManager (depends on Farm as poolManager)
         messageManager = _deployMessageManager(admin, address(farm));
         console.log("MessageManager deployed at:", address(messageManager));
 
@@ -121,12 +114,9 @@ contract FullDeploy is Script {
         nftManager.setFarm(address(farm));
         console.log("NFTManager.setFarm done");
 
-        // Vault -> Farm, FarmLend, Oracle
+        // Vault -> Farm, Oracle
         vault.setFarmAddress(address(farm));
         console.log("Vault.setFarmAddress done");
-        
-        vault.setFarmLendAddress(address(farmLend));
-        console.log("Vault.setFarmLendAddress done");
         
         vault.setOracleManager(address(oracle));
         console.log("Vault.setOracleManager done");
@@ -154,7 +144,6 @@ contract FullDeploy is Script {
         console.log("Vault:          ", address(vault));
         console.log("PUSDOracle:     ", address(oracle));
         console.log("Farm:           ", address(farm));
-        console.log("FarmLend:       ", address(farmLend));
         console.log("ReferralManager:", address(referralManager));
         console.log("MessageManager: ", address(messageManager));
         console.log("");
@@ -162,7 +151,6 @@ contract FullDeploy is Script {
         console.log("1. Add supported assets to Vault: vault.addAsset(token, name)");
         console.log("2. Add tokens to Oracle: oracle.addToken(token, chainlinkFeed)");
         console.log("   (PUSD/USD = 1 constant, only need Chainlink Token/USD feed)");
-        console.log("3. Set FarmLend parameters: farmLend.setDebtTokenConfig(...)");
     }
 
     // ========== Salt Generation ==========
@@ -253,19 +241,6 @@ contract FullDeploy is Script {
         ERC1967Proxy proxy = new ERC1967Proxy{salt: proxySalt}(address(impl), initData);
         
         return FarmUpgradeable(address(proxy));
-    }
-
-    function _deployFarmLend(address admin_, address nftManager_, address vault_, address oracle_, address farm_) internal returns (FarmLend) {
-        // Deploy impl with CREATE2
-        bytes32 implSalt = _implSalt("FarmLend");
-        FarmLend impl = new FarmLend{salt: implSalt}();
-        
-        // Deploy proxy with CREATE2
-        bytes memory initData = abi.encodeCall(FarmLend.initialize, (admin_, nftManager_, vault_, oracle_, farm_));
-        bytes32 proxySalt = _proxySalt("FarmLend");
-        ERC1967Proxy proxy = new ERC1967Proxy{salt: proxySalt}(address(impl), initData);
-        
-        return FarmLend(address(proxy));
     }
 
     function _deployReferral(address admin_, address pusd_) internal returns (ReferralRewardManager) {

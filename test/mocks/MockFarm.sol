@@ -3,7 +3,7 @@ pragma solidity ^0.8.20;
 
 /**
  * @title MockFarm
- * @notice Mock implementation of IFarm for FarmLend testing
+ * @notice Mock implementation of IFarm for testing
  */
 contract MockFarm {
     mapping(uint256 => uint256) public updatedAmounts;
@@ -30,11 +30,6 @@ contract MockFarm {
 
         // Default APY: 10%
         _currentAPY = 1000;
-    }
-
-    /// @notice Mock updateByFarmLend - called by FarmLend after liquidation
-    function updateByFarmLend(uint256 tokenId, uint256 newAmount) external {
-        updatedAmounts[tokenId] = newAmount;
     }
 
     /// @notice Get the updated amount for a tokenId

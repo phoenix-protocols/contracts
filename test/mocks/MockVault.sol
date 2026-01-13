@@ -71,22 +71,17 @@ contract MockVault {
         return pusdToken.balanceOf(address(this));
     }
 
-    /// @notice Mock withdrawTo - for FarmLend
+    /// @notice Mock withdrawTo
     function withdrawTo(address to, address token, uint256 amount) external {
         IERC20(token).transfer(to, amount);
     }
 
-    /// @notice Mock depositFor - for FarmLend
+    /// @notice Mock depositFor
     function depositFor(address from, address token, uint256 amount) external {
         IERC20(token).transferFrom(from, address(this), amount);
     }
 
-    /// @notice Mock releaseNFT - for FarmLend
-    function releaseNFT(uint256 /*tokenId*/, address /*to*/) external {
-        // Mock: In real impl this would transfer NFT back
-    }
-
-    /// @notice Mock addFee - for FarmLend fee recording
+    /// @notice Mock addFee
     function addFee(address /*token*/, uint256 /*amount*/) external {
         // Mock: In real impl this would record fees
     }

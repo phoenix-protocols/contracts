@@ -13,7 +13,6 @@ abstract contract FarmStorage is IFarm {
     IyPUSD public ypusdToken; // yPUSD yield token contract
     IVault public vault; // Fund vault contract
     address public _nftManager; // NFT Manager contract address
-    address public farmLend; // FarmLend contract address
 
     /* ========== Permission Roles ========== */
 

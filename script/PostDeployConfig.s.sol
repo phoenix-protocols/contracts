@@ -6,7 +6,6 @@ import "forge-std/console.sol";
 
 import {Vault} from "src/Vault/Vault.sol";
 import {FarmUpgradeable} from "src/Farm/Farm.sol";
-import {FarmLend} from "src/Farm/FarmLend.sol";
 import {PUSDOracleUpgradeable} from "src/Oracle/PUSDOracle.sol";
 import {ReferralRewardManager} from "src/Referral/ReferralRewardManager.sol";
 import {yPUSD} from "src/token/yPUSD/yPUSD.sol";
@@ -29,7 +28,6 @@ contract PostDeployConfig is Script {
     // Contract addresses (from .env)
     address public vault;
     address public farm;
-    address public farmLend;
     address public oracle;
     address public referralManager;
     address public ypusd;
@@ -44,7 +42,6 @@ contract PostDeployConfig is Script {
         // Load deployed addresses
         vault = vm.envAddress("VAULT");
         farm = vm.envAddress("FARM");
-        farmLend = vm.envOr("FARM_LEND", address(0));
         oracle = vm.envAddress("ORACLE");
         referralManager = vm.envOr("REFERRAL_MANAGER", address(0));
         ypusd = vm.envOr("YPUSD", address(0));
@@ -103,13 +100,7 @@ contract PostDeployConfig is Script {
         // 6. Configure System Config (minDeposit, minLock, maxStakes, etc.)
         _configureSystemConfig();
 
-        // 7. Configure FarmLend Address in Farm
-        _configureFarmLend();
-
-        // 8. Configure FarmLend Parameters (allowed debt tokens, ratios)
-        _configureFarmLendParams();
-
-        // 9. Configure NFTManager (set vault address for transfer exclusion)
+        // 7. Configure NFTManager (set vault address for transfer exclusion)
         _configureNFTManager();
 
         // 10. Configure Bridge Chains
@@ -366,121 +357,8 @@ contract PostDeployConfig is Script {
     }
 
     // ════════════════════════════════════════════════════════════════════════
-    // FARM - FarmLend Address
     // ════════════════════════════════════════════════════════════════════════
-    function _configureFarmLend() internal {
-        console.log("--- Configuring FarmLend Address in Farm ---");
-
-        if (farmLend == address(0)) {
-            console.log("  WARNING: FARM_LEND not set, skipping");
-            return;
-        }
-
-        FarmUpgradeable farmContract = FarmUpgradeable(farm);
-        farmContract.setFarmLend(farmLend);
-
-        console.log("  FarmLend:", farmLend);
-    }
-
-    // ════════════════════════════════════════════════════════════════════════
-    // FARMLEND - Allowed Debt Tokens & Parameters
-    // ════════════════════════════════════════════════════════════════════════
-    function _configureFarmLendParams() internal {
-        console.log("--- Configuring FarmLend Parameters ---");
-
-        if (farmLend == address(0)) {
-            console.log("  WARNING: FARM_LEND not set, skipping");
-            return;
-        }
-
-        FarmLend farmLendContract = FarmLend(farmLend);
-
-        // Get token addresses based on chain
-        address usdt;
-        address usdc;
-
-        if (block.chainid == 97) {
-            // BSC Testnet
-            usdt = vm.envOr("BSC_TESTNET_USDT", address(0));
-            usdc = vm.envOr("BSC_TESTNET_USDC", address(0));
-        } else if (block.chainid == 56) {
-            // BSC Mainnet
-            usdt = vm.envOr("BSC_USDT", address(0));
-            usdc = vm.envOr("BSC_USDC", address(0));
-        } else {
-            console.log("  WARNING: Unknown chain, skipping FarmLend config");
-            return;
-        }
-
-        // 1. Set allowed debt tokens (tokens that can be borrowed)
-        if (usdt != address(0)) {
-            farmLendContract.setAllowedDebtToken(usdt, true);
-            console.log("  Allowed debt token USDT:", usdt);
-        }
-        if (usdc != address(0)) {
-            farmLendContract.setAllowedDebtToken(usdc, true);
-            console.log("  Allowed debt token USDC:", usdc);
-        }
-
-        // 2. Set collateral ratios (optional - defaults are set in initialize)
-        // Defaults: liquidationRatio=12500 (125%), targetCollateralRatio=13000 (130%)
-        uint16 liquidationRatio = uint16(vm.envOr("FARMLEND_LIQUIDATION_RATIO", uint256(12500)));
-        uint16 targetCR = uint16(vm.envOr("FARMLEND_TARGET_CR", uint256(13000)));
-        farmLendContract.setCollateralRatios(liquidationRatio, targetCR);
-        console.log("  Liquidation Ratio:", liquidationRatio, "bps");
-        console.log("  Target CR:", targetCR, "bps");
-
-        // 3. Set annual interest rate (optional - default 1000 bps = 10% APR)
-        uint256 annualRate = vm.envOr("FARMLEND_ANNUAL_INTEREST_RATE", uint256(1460)); // 14.6% APR
-        farmLendContract.setAnnualInterestRate(annualRate);
-        console.log("  Annual Interest Rate:", annualRate, "bps");
-
-        // 4. Set minimum borrow amount (optional - default 20 PUSD)
-        uint256 minBorrow = vm.envOr("FARMLEND_MIN_BORROW", uint256(20e6)); // 20 PUSD
-        farmLendContract.setMinBorrowAmount(minBorrow);
-        console.log("  Min Borrow Amount:", minBorrow, "wei");
-
-        // 5. Set minimum collateral threshold for slash (optional - default 20 PUSD)
-        uint256 minCollateral = vm.envOr("FARMLEND_MIN_COLLATERAL_THRESHOLD", uint256(20e6)); // 20 PUSD
-        farmLendContract.setMinCollateralThreshold(minCollateral);
-        console.log("  Min Collateral Threshold:", minCollateral, "wei");
-
-        // 4. Set PUSD Oracle (CRITICAL - needed for price feeds)
-        if (oracle != address(0)) {
-            farmLendContract.setPUSDOracle(oracle);
-            console.log("  PUSD Oracle set to:", oracle);
-        } else {
-            console.log("  WARNING: Oracle not set!");
-        }
-
-        // 5. Set penalty ratio (basis points, e.g. 50 = 0.5% per day)
-        // Default: 50 bps (0.5% per overdue day)
-        uint256 penaltyRatio = vm.envOr("FARMLEND_PENALTY_RATIO", uint256(50));
-        farmLendContract.setPenaltyRatio(penaltyRatio);
-        console.log("  Penalty Ratio:", penaltyRatio, "bps per day");
-
-        // 6. Set loan grace period (seconds after due date before liquidation)
-        // Default: 7 days
-        uint256 loanGracePeriod = vm.envOr("FARMLEND_LOAN_GRACE_PERIOD", uint256(7 days));
-        farmLendContract.setLoanGracePeriod(loanGracePeriod);
-        console.log("  Loan Grace Period:", loanGracePeriod / 1 days, "days");
-
-        // 7. Set penalty grace period (seconds after due date before penalty starts)
-        // Default: 3 days (must be <= loanGracePeriod)
-        uint256 penaltyGracePeriod = vm.envOr("FARMLEND_PENALTY_GRACE_PERIOD", uint256(3 days));
-        farmLendContract.setPenaltyGracePeriod(penaltyGracePeriod);
-        console.log("  Penalty Grace Period:", penaltyGracePeriod / 1 days, "days");
-
-        // 8. Set liquidation bonus (basis points, e.g. 300 = 3%)
-        // Default: 300 bps (3% bonus for liquidators)
-        uint16 liquidationBonus = uint16(vm.envOr("FARMLEND_LIQUIDATION_BONUS", uint256(300)));
-        farmLendContract.setLiquidationBonus(liquidationBonus);
-        console.log("  Liquidation Bonus:", liquidationBonus, "bps");
-    }
-
-    // ════════════════════════════════════════════════════════════════════════
-    // NFTMANAGER - Set Vault Address for Transfer Exclusion
-    // ════════════════════════════════════════════════════════════════════════
+    // NFTMANAGER - Set Vault Address for Transfer Exclusion    // ════════════════════════════════════════════════════════════════════════
     function _configureNFTManager() internal {
         console.log("--- Configuring NFTManager ---");
 
@@ -498,14 +376,6 @@ contract PostDeployConfig is Script {
             console.log("  Vault set to:", vault);
         } else {
             console.log("  WARNING: VAULT not set!");
-        }
-
-        // Set farmLend address so FarmLend can burn NFTs on slash
-        if (farmLend != address(0)) {
-            nftManagerContract.setFarmLend(farmLend);
-            console.log("  FarmLend set to:", farmLend);
-        } else {
-            console.log("  WARNING: FARM_LEND not set!");
         }
     }
 
@@ -646,23 +516,6 @@ contract PostDeployConfig is Script {
             }
         } else {
             console.log("  WARNING: OPERATOR not set, skipping OPERATOR_ROLE");
-        }
-
-        // 6. FarmLend: Grant OPERATOR_ROLE to operators (for configuration management)
-        if (farmLend != address(0) && operators.length > 0) {
-            FarmLend farmLendContract = FarmLend(farmLend);
-            bytes32 operatorRole = keccak256("OPERATOR_ROLE");
-            for (uint256 i = 0; i < operators.length; i++) {
-                if (!farmLendContract.hasRole(operatorRole, operators[i])) {
-                    farmLendContract.grantRole(operatorRole, operators[i]);
-                    console.log("  FarmLend.OPERATOR_ROLE granted to operator:", operators[i]);
-                } else {
-                    console.log("  FarmLend.OPERATOR_ROLE already granted to operator:", operators[i]);
-                }
-            }
-        } else {
-            if (farmLend == address(0)) console.log("  WARNING: FARMLEND not set, skipping FarmLend OPERATOR_ROLE");
-            if (operators.length == 0) console.log("  WARNING: OPERATOR not set, skipping FarmLend OPERATOR_ROLE");
         }
     }
 

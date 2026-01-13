@@ -750,12 +750,7 @@ contract FarmUpgradeable is Initializable, AccessControlUpgradeable, ReentrancyG
      * @param tokenId The transferred token ID
      */
     function onNFTTransfer(address from, address to, uint256 tokenId) external {
-        require(msg.sender == _nftManager || msg.sender == farmLend, "Only NFTManager or FarmLend");
-        
-        // If called by FarmLend, verify NFT ownership matches
-        if (msg.sender == farmLend) {
-            require(IERC721(_nftManager).ownerOf(tokenId) == to, "NFT ownership mismatch");
-        }
+        require(msg.sender == _nftManager, "Only NFTManager");
         
         // Remove tokenId from sender's array
         _removeTokenIdFromUser(from, tokenId);
@@ -771,19 +766,6 @@ contract FarmUpgradeable is Initializable, AccessControlUpgradeable, ReentrancyG
         receiverInfo.lastActionTime = block.timestamp;
         
         emit StakeNFTTransferred(from, to, tokenId);
-    }
-
-    /**
-     * @notice Callback from FarmLend when stake NFT is burned (slashed)
-     * @dev Removes tokenId from owner's tokenIds array
-     * @param owner Original owner address
-     * @param tokenId The burned token ID
-     */
-    function onNFTBurn(address owner, uint256 tokenId) external {
-        require(msg.sender == farmLend, "Only FarmLend");
-        
-        // Remove tokenId from owner's array
-        _removeTokenIdFromUser(owner, tokenId);
     }
 
     /* ========== Multiplier Configuration Management ========== */
@@ -838,44 +820,6 @@ contract FarmUpgradeable is Initializable, AccessControlUpgradeable, ReentrancyG
 
         delete lockPeriodMultipliers[lockPeriod];
         emit LockPeriodRemoved(lockPeriod);
-    }
-
-    /**
-     * @notice Update stake record by FarmLend
-     * @param tokenId Token ID
-     * @param pusdAmount PUSD amount
-     */
-    function updateByFarmLend(uint256 tokenId, uint256 pusdAmount) public {
-        require(msg.sender == farmLend, "Unauthorized");
-        NFTManager nftManager = NFTManager(_nftManager);
-        IFarm.StakeRecord memory record = nftManager.getStakeRecord(tokenId);
-        require(record.amount >= pusdAmount, "Low stake");
-        uint256 reward = _calculateStakeReward(record);
-
-        // Calculate the difference and update global tracking
-        uint256 amountDiff = record.amount - pusdAmount;
-        if (amountDiff > 0) {
-            // Update totalStaked
-            if (totalStaked >= amountDiff) {
-                totalStaked -= amountDiff;
-            } else {
-                totalStaked = 0;
-            }
-            // Update poolTVL
-            if (poolTVL[record.lockPeriod] >= amountDiff) {
-                poolTVL[record.lockPeriod] -= amountDiff;
-            } else {
-                poolTVL[record.lockPeriod] = 0;
-            }
-        }
-
-        // Update last claim time
-        record.lastClaimTime = block.timestamp;
-        // Update pending reward
-        record.pendingReward += reward;
-        // Update stake amount
-        record.amount = pusdAmount;
-        nftManager.updateStakeRecord(tokenId, record);
     }
 
     /* ========== PUSD Bridge Functions ========== */
@@ -1029,12 +973,6 @@ contract FarmUpgradeable is Initializable, AccessControlUpgradeable, ReentrancyG
         require(nftManager_ != address(0), "Invalid NFT mgr");
         _nftManager = nftManager_;
         emit NFTManagerUpdated(nftManager_);
-    }
-
-    function setFarmLend(address farmLend_) external onlyRole(OPERATOR_ROLE) {
-        require(farmLend_ != address(0), "Bad FarmLend");
-        farmLend = farmLend_;
-        emit FarmLendUpdated(farmLend_);
     }
 
     /**

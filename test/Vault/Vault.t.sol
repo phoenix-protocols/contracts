@@ -28,7 +28,6 @@ contract VaultTest is Test, Vault_Deployer_Base {
 
     address admin    = address(0xAAAD);
     address farm     = address(0xFAF1);
-    address farmLend = address(0xFAF2);
     address user     = address(0xBEEF);
 
     address feeTo    = admin;
@@ -54,9 +53,6 @@ contract VaultTest is Test, Vault_Deployer_Base {
         // Set admin roles
         vm.prank(admin);
         vault.setFarmAddress(farm);
-
-        vm.prank(admin);
-        vault.setFarmLendAddress(farmLend);
 
         vm.prank(admin);
         vault.setOracleManager(address(oracle));
@@ -118,16 +114,6 @@ contract VaultTest is Test, Vault_Deployer_Base {
         vm.prank(admin);
         vm.expectRevert("Vault: Farm address already set");
         vault.setFarmAddress(address(123));
-    }
-
-    function test_SetFarmLendAddress_OnlyAdmin_AndOnlyOnce() public {
-        vm.expectRevert();
-        vm.prank(user);
-        vault.setFarmLendAddress(address(123));
-
-        vm.prank(admin);
-        vm.expectRevert("Vault: FarmLend address already set");
-        vault.setFarmLendAddress(address(123));
     }
 
     function test_SetOracleManager_OnlyAdmin_AndOnlyOnce() public {
@@ -210,7 +196,7 @@ contract VaultTest is Test, Vault_Deployer_Base {
         uint256 amount = 100e6;
 
         vm.prank(user);
-        vm.expectRevert("Vault: Caller is not the farm or farmLend");
+        vm.expectRevert("Vault: Caller is not the farm");
         vault.depositFor(user, address(usdt), amount);
 
         // Insufficient allowance
@@ -233,14 +219,6 @@ contract VaultTest is Test, Vault_Deployer_Base {
         vault.depositFor(user, address(usdt), amount);
 
         assertEq(usdt.balanceOf(address(vault)), amount);
-
-        // farmLend can also deposit
-        vm.prank(user);
-        usdt.approve(address(vault), amount);
-        vm.prank(farmLend);
-        vault.depositFor(user, address(usdt), amount);
-
-        assertEq(usdt.balanceOf(address(vault)), amount * 2);
     }
 
     function test_WithdrawTo_Flow() public {
@@ -248,7 +226,7 @@ contract VaultTest is Test, Vault_Deployer_Base {
         _depositFromFarm(address(usdt), amount, user);
 
         vm.prank(user);
-        vm.expectRevert("Vault: Caller is not the farm or farmLend");
+        vm.expectRevert("Vault: Caller is not the farm");
         vault.withdrawTo(user, address(usdt), amount);
 
         vm.warp(block.timestamp + vault.HEALTH_CHECK_TIMEOUT() + 1);
@@ -267,7 +245,7 @@ contract VaultTest is Test, Vault_Deployer_Base {
         uint256 amount = 100e6;
 
         vm.prank(user);
-        vm.expectRevert("Vault: Caller is not the farm or farmLend");
+        vm.expectRevert("Vault: Caller is not the farm");
         vault.withdrawPUSDTo(user, amount);
 
         vm.warp(block.timestamp + vault.HEALTH_CHECK_TIMEOUT() + 1);
@@ -288,7 +266,7 @@ contract VaultTest is Test, Vault_Deployer_Base {
         uint256 feeAmount = 10e6;
 
         vm.prank(user);
-        vm.expectRevert("Vault: Caller is not the farm or farmLend");
+        vm.expectRevert("Vault: Caller is not the farm");
         vault.addFee(address(usdt), feeAmount);
 
         vm.prank(farm);
@@ -506,20 +484,6 @@ contract VaultTest is Test, Vault_Deployer_Base {
         vm.prank(admin);
         vm.expectRevert("NFTManager: stake already withdrawn");
         vault.withdrawNFT(tokenId, user);
-    }
-
-    function test_ReleaseNFT_OnlyFarmLend() public {
-        uint256 tokenId = 3;
-        vm.warp(12345678910);
-        _setNFTRecord(tokenId, true, block.timestamp - 100 days, 10 days);
-
-        vm.prank(user);
-        vm.expectRevert("Not From FarmLend");
-        vault.releaseNFT(tokenId, user);
-
-        vm.prank(farmLend);
-        vault.releaseNFT(tokenId, user);
-        assertEq(nft.ownerOf(tokenId), user);
     }
 
     // ---------- pause / unpause ----------

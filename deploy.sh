@@ -125,7 +125,6 @@ update_abis() {
     # Contract mappings: name:source_path (using : as delimiter)
     local contracts="
         Farm:Farm.sol/FarmUpgradeable
-        FarmLend:FarmLend.sol/FarmLend
         MessageManager:MessageManager.sol/MessageManager
         NFTManager:NFTManager.sol/NFTManager
         PUSD:PUSD.sol/PUSD

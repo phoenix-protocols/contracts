@@ -93,17 +93,6 @@ contract NFTManager is Initializable, ERC721BurnableUpgradeable, ERC721Enumerabl
         emit VaultUpdated(vault_);
     }
 
-    /**
-     * @notice Set the FarmLend contract address
-     * @dev FarmLend needs permission to burn NFTs on slash
-     * @param farmLend_ The FarmLend contract address
-     */
-    function setFarmLend(address farmLend_) external onlyAdmin {
-        require(farmLend_ != address(0), "NFTManager: invalid farmLend address");
-        farmLend = farmLend_;
-        emit FarmLendUpdated(farmLend_);
-    }
-
     // ---------- Core: Mint Stake NFT ----------
     /**
      * @notice Mint a new NFT representing a staking record.
@@ -208,10 +197,10 @@ contract NFTManager is Initializable, ERC721BurnableUpgradeable, ERC721Enumerabl
 
     // ---------- Burn ----------
     /// @notice Burn a stake NFT
-    /// @dev Can be called by editors (Farm) or FarmLend for slash
+    /// @dev Can be called by editors (Farm)
     function burn(uint256 tokenId) public override {
         require(
-            hasRole(METADATA_EDITOR_ROLE, _msgSender()) || _msgSender() == owner() || _msgSender() == farmLend,
+            hasRole(METADATA_EDITOR_ROLE, _msgSender()) || _msgSender() == owner(),
             "NFTManager: not authorized to burn"
         );
         _requireOwned(tokenId);
@@ -266,7 +255,7 @@ contract NFTManager is Initializable, ERC721BurnableUpgradeable, ERC721Enumerabl
         // Excluded cases:
         // - from == address(0): minting
         // - to == address(0): burning  
-        // - from == vault or to == vault: lending collateral operations (handled by FarmLend)
+        // - from == vault or to == vault: vault operations
         if (farm != address(0) && from != address(0) && to != address(0) 
             && from != vault && to != vault) {
             IFarm(farm).onNFTTransfer(from, to, tokenId);

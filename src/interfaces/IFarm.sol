@@ -69,7 +69,6 @@ interface IFarm {
     event LockPeriodRemoved(uint256 indexed lockPeriod);
     event PoolCapUpdated(uint256 indexed lockPeriod, uint256 cap);
     event NFTManagerUpdated(address indexed nftManager);
-    event FarmLendUpdated(address indexed farmLend);
 
     // Bridge events
     event BridgePUSDInitiated(uint256 indexed sourceChainId, uint256 indexed destChainId, address indexed from, address to, uint256 totalAmount, uint256 netAmount, uint256 fee);
@@ -112,11 +111,7 @@ interface IFarm {
 
     function setFeeRates(uint256 _depositFeeRate, uint256 _withdrawFeeRate, uint256 _bridgeFeeRate) external;
 
-    function updateByFarmLend(uint256 tokenId, uint256 pusdAmount) external;
-
     function onNFTTransfer(address from, address to, uint256 tokenId) external;
-
-    function onNFTBurn(address owner, uint256 tokenId) external;
 
     /// @notice Get current base APY in basis points
     function currentAPY() external view returns (uint16);
