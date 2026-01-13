@@ -28,6 +28,10 @@ abstract contract FarmStorage is IFarm {
     uint16 public withdrawFeeRate = 50; // Withdrawal fee rate (basis points, 50 = 0.5%, max 65535)
     uint16 public bridgeFeeRate = 0; // Bridge fee rate (basis points, 50 = 0.5%, max 65535)
 
+    // Custom fee rates: feeType => user => customRate (0 = use default)
+    // feeType: 0=deposit, 1=withdraw, 2=bridge
+    mapping(uint8 => mapping(address => uint16)) public customFeeRates;
+
     uint256 public minDepositAmount = 0; // Minimum deposit amount (PUSD wei, set via config)
 
     /* ========== Statistics ========== */

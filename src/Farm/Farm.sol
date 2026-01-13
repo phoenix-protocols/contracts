@@ -95,9 +95,10 @@ contract FarmUpgradeable is Initializable, AccessControlUpgradeable, ReentrancyG
 
         require(pusdAmount >= minDepositAmount, "Amount below min");
 
-        // Calculate fee (explicit uint256 cast to avoid potential optimizer issues)
-        uint256 fee = (amount * uint256(depositFeeRate)) / 10000;
-        uint256 netPUSD = pusdAmount - (pusdAmount * uint256(depositFeeRate)) / 10000;
+        // Calculate fee using effective fee rate (custom or default)
+        uint16 effectiveFeeRate = getEffectiveFeeRate(0, msg.sender);
+        uint256 fee = (amount * uint256(effectiveFeeRate)) / 10000;
+        uint256 netPUSD = pusdAmount - (pusdAmount * uint256(effectiveFeeRate)) / 10000;
 
         // All assets deposited to Vault
         vault.depositFor(msg.sender, asset, amount);
@@ -147,8 +148,9 @@ contract FarmUpgradeable is Initializable, AccessControlUpgradeable, ReentrancyG
 
         UserAssetInfo storage userInfo = userAssets[msg.sender];
 
-        // Calculate withdrawal fee (based on asset amount, using same price point)
-        uint256 assetFee = (assetAmount * uint256(withdrawFeeRate)) / 10000;
+        // Calculate withdrawal fee using effective fee rate (custom or default)
+        uint16 effectiveFeeRate = getEffectiveFeeRate(1, msg.sender);
+        uint256 assetFee = (assetAmount * uint256(effectiveFeeRate)) / 10000;
         uint256 netAssetAmount = assetAmount - assetFee;
 
         // Burn user's PUSD
@@ -843,8 +845,9 @@ contract FarmUpgradeable is Initializable, AccessControlUpgradeable, ReentrancyG
         require(pusdToken.balanceOf(msg.sender) >= value, "Low PUSD");
         require(isSupportedBridgeChain[destChainId], "Destination chain not supported");
 
-        // Calculate bridge fee (explicit uint256 cast to avoid potential optimizer issues)
-        uint256 fee = (value * uint256(bridgeFeeRate)) / 10000;
+        // Calculate bridge fee using effective fee rate (custom or default)
+        uint16 effectiveFeeRate = getEffectiveFeeRate(2, msg.sender);
+        uint256 fee = (value * uint256(effectiveFeeRate)) / 10000;
         uint256 netAmount = value - fee;
 
         // Burn PUSD from user (total amount including fee)
@@ -950,6 +953,51 @@ contract FarmUpgradeable is Initializable, AccessControlUpgradeable, ReentrancyG
     }
 
     /* ========== Admin Functions ========== */
+
+    /**
+     * @notice Set custom fee rate for specific user
+     * @param feeType Fee type: 0=deposit, 1=withdraw, 2=bridge
+     * @param user User address
+     * @param feeRate Custom fee rate (0 = use default, 1-10000 = custom rate in basis points)
+     */
+    function setCustomFeeRate(uint8 feeType, address user, uint16 feeRate) external onlyRole(OPERATOR_ROLE) {
+        require(feeType <= 2, "Invalid fee type");
+        require(feeRate <= 10000, "Fee too high");
+        customFeeRates[feeType][user] = feeRate;
+    }
+
+    /**
+     * @notice Batch set custom fee rates for multiple users
+     * @param feeType Fee type: 0=deposit, 1=withdraw, 2=bridge
+     * @param users Array of user addresses
+     * @param feeRates Array of custom fee rates (0 = use default)
+     */
+    function batchSetCustomFeeRate(uint8 feeType, address[] calldata users, uint16[] calldata feeRates) external onlyRole(OPERATOR_ROLE) {
+        require(feeType <= 2, "Invalid fee type");
+        require(users.length == feeRates.length, "Length mismatch");
+        require(users.length > 0, "Empty arrays");
+        
+        for (uint256 i = 0; i < users.length; i++) {
+            require(feeRates[i] <= 10000, "Fee too high");
+            customFeeRates[feeType][users[i]] = feeRates[i];
+        }
+    }
+
+    /**
+     * @notice Get effective fee rate for user (custom or default)
+     * @param feeType Fee type: 0=deposit, 1=withdraw, 2=bridge
+     * @param user User address
+     * @return Effective fee rate in basis points
+     */
+    function getEffectiveFeeRate(uint8 feeType, address user) public view returns (uint16) {
+        uint16 customRate = customFeeRates[feeType][user];
+        if (customRate > 0) return customRate;
+        
+        if (feeType == 0) return depositFeeRate;
+        if (feeType == 1) return withdrawFeeRate;
+        if (feeType == 2) return bridgeFeeRate;
+        return 0;
+    }
 
     /**
      * @notice Set fee rates
