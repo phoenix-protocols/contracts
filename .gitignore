@@ -31,3 +31,6 @@ lambda/
 abi/
 broadcast/
 upgrade_verify.sh
+.env.dev
+.env.production
+.env.*

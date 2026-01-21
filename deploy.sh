@@ -69,12 +69,29 @@ deploy_to_chain() {
         verify_args="--verify --etherscan-api-key $verify_api_key --verifier-url $verify_url --retries 100 --delay 8"
     fi
 
+    # ════════════════════════════════════════════════════════════════════════
+    # MONAD SPECIAL HANDLING
+    # ════════════════════════════════════════════════════════════════════════
+    # Monad is a parallel EVM chain with different nonce handling behavior.
+    # When sending multiple transactions in parallel (default forge behavior),
+    # nonce conflicts may cause some transactions to fail.
+    #
+    # Solution: Use --slow flag to send transactions sequentially, waiting for
+    # each tx to be confirmed before sending the next one.
+    # ════════════════════════════════════════════════════════════════════════
+    local extra_flags=""
+    if [[ "$chain_name" == "Monad" || "$chain_name" == "monad" ]]; then
+        echo -e "${YELLOW}⚠️  Monad detected: Using --slow mode to avoid nonce conflicts${NC}"
+        extra_flags="--slow"
+    fi
+
     # Run deployment (continue on verification failure)
     echo -e "${GREEN}Starting deployment...${NC}"
     if forge script script/FullDeploy.s.sol:FullDeploy \
         --rpc-url "$rpc_url" \
         --private-key "$PRIVATE_KEY" \
         --broadcast \
+        $extra_flags \
         $verify_args \
         -vvv; then
         echo -e "${GREEN}✓ ${chain_name} deployment complete!${NC}"

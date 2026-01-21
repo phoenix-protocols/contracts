@@ -263,6 +263,16 @@ contract FarmUpgradeable is Initializable, AccessControlUpgradeable, ReentrancyG
         uint256 oldLockPeriod = stakeRecord.lockPeriod;
         uint256 oldAmount = stakeRecord.amount;
 
+        // Check pool cap before renewal
+        if (oldLockPeriod != newLockPeriod) {
+            // Moving to new pool: check if new pool has capacity for full amount (old + rewards)
+            uint256 newAmount = oldAmount + totalReward;
+            require(poolCap[newLockPeriod] == 0 || poolTVL[newLockPeriod] + newAmount <= poolCap[newLockPeriod], "Pool full");
+        } else if (totalReward > 0) {
+            // Same pool: check if current pool has capacity for additional rewards
+            require(poolCap[newLockPeriod] == 0 || poolTVL[newLockPeriod] + totalReward <= poolCap[newLockPeriod], "Pool full");
+        }
+
         // Reset stake record for new lock period AFTER reward calculation
         stakeRecord.startTime = block.timestamp;
         stakeRecord.lastClaimTime = block.timestamp;
@@ -372,11 +382,20 @@ contract FarmUpgradeable is Initializable, AccessControlUpgradeable, ReentrancyG
     /**
      * @notice Unified stake query function (merged version)
      * @param account User address
-     * @param queryType Query type: 0-total rewards, 1-specific ID rewards, 2-allowance amount, 3-stake validation
-     * @param tokenId Stake record ID (used when queryType=1)
-     * @param amount Stake amount (used when queryType=3)
-     * @return result Query result
-     * @return reason Validation failure reason (used when queryType=3)
+     * @param queryType Query type: 
+     *        0 - total rewards for all stakes
+     *        1 - specific stake rewards (tokenId = stake ID)
+     *        2 - PUSD allowance amount
+     *        3 - canStake validation (tokenId = lockPeriod, amount = stake amount)
+     *        4 - canRenewStake validation (tokenId = stake ID, amount = newLockPeriod)
+     * @param tokenId Stake record ID (queryType 1,4) or lockPeriod (queryType 3)
+     * @param amount Stake amount (queryType 3) or newLockPeriod (queryType 4)
+     * @return result Query result:
+     *         queryType 0,1: reward amount
+     *         queryType 2: allowance amount
+     *         queryType 3: 1=can stake, 0=cannot
+     *         queryType 4: estimatedNewAmount if can renew, 0 if cannot
+     * @return reason Validation failure reason (queryType 3,4)
      */
     function getStakeInfo(address account, uint256 queryType, uint256 tokenId, uint256 amount) external view returns (uint256 result, string memory reason) {
         if (queryType == 0) {
@@ -404,17 +423,98 @@ contract FarmUpgradeable is Initializable, AccessControlUpgradeable, ReentrancyG
             // Get allowance amount
             return (IERC20(address(pusdToken)).allowance(account, address(this)), "");
         } else if (queryType == 3) {
-            // Validate if staking is possible
+            // canStake validation (tokenId parameter is used as lockPeriod)
+            uint256 lockPeriod = tokenId;
+            
+            // Check minimum amount
             if (amount < minLockAmount) {
                 return (0, "Below min amount");
             }
+            
+            // Check if lock period is supported
+            if (lockPeriodMultipliers[lockPeriod] == 0) {
+                return (0, "Invalid period");
+            }
+            
+            // Check pool cap
+            if (poolCap[lockPeriod] > 0 && poolTVL[lockPeriod] + amount > poolCap[lockPeriod]) {
+                return (0, "Pool full");
+            }
+            
+            // Check max stakes per user
+            if (userAssets[account].tokenIds.length >= maxStakesPerUser) {
+                return (0, "Max stakes reached");
+            }
+            
+            // Check PUSD balance
             if (pusdToken.balanceOf(account) < amount) {
                 return (0, "Low PUSD");
             }
+            
+            // Check allowance
             if (IERC20(address(pusdToken)).allowance(account, address(this)) < amount) {
-                return (0, "Insufficient PUSD allowance");
+                return (0, "Insufficient allowance");
             }
+            
             return (1, "");
+        } else if (queryType == 4) {
+            // canRenewStake validation (tokenId parameter is tokenId, amount parameter is newLockPeriod)
+            uint256 newLockPeriod = amount;
+            NFTManager nftManager = NFTManager(_nftManager);
+            
+            // Check if tokenId exists
+            try nftManager.ownerOf(tokenId) returns (address) {
+                // tokenId exists
+            } catch {
+                return (0, "Invalid tokenId");
+            }
+            
+            StakeRecord memory stakeRecord = nftManager.getStakeRecord(tokenId);
+            
+            // Check if stake is active
+            if (!stakeRecord.active) {
+                return (0, "Inactive stake");
+            }
+            
+            // Check if unlocked
+            if (block.timestamp < stakeRecord.startTime + stakeRecord.lockPeriod) {
+                return (0, "Still locked");
+            }
+            
+            // Check if new lock period is supported
+            if (lockPeriodMultipliers[newLockPeriod] == 0) {
+                return (0, "Invalid period");
+            }
+            
+            // Calculate estimated rewards for compounding
+            uint256 reward = _calculateStakeReward(stakeRecord);
+            uint256 totalReward = reward + stakeRecord.pendingReward;
+            uint256 estimatedNewAmount = stakeRecord.amount + totalReward;
+            
+            // Check pool cap
+            uint256 oldLockPeriod = stakeRecord.lockPeriod;
+            if (oldLockPeriod != newLockPeriod) {
+                // Moving to new pool: check if new pool has capacity
+                if (poolCap[newLockPeriod] > 0 && poolTVL[newLockPeriod] + estimatedNewAmount > poolCap[newLockPeriod]) {
+                    return (0, "Pool full");
+                }
+            } else if (totalReward > 0) {
+                // Same pool: check if pool has capacity for additional rewards
+                if (poolCap[newLockPeriod] > 0 && poolTVL[newLockPeriod] + totalReward > poolCap[newLockPeriod]) {
+                    return (0, "Pool full");
+                }
+            }
+            
+            // Check if vault has enough reserve for compounding
+            if (totalReward > 0) {
+                uint256 reserveBalance = pusdToken.balanceOf(address(vault));
+                if (reserveBalance < totalReward) {
+                    return (0, "Low reserve");
+                }
+            }
+            
+            // Return estimatedNewAmount as result (> 0 means can renew)
+            return (estimatedNewAmount, "");
         }
         return (0, "Bad query");
     }

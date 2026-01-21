@@ -116,12 +116,31 @@ echo "Config Type: $CONFIG_TYPE"
 echo "RPC:         $RPC_URL"
 echo ""
 
+# ════════════════════════════════════════════════════════════════════════════
+# MONAD SPECIAL HANDLING
+# ════════════════════════════════════════════════════════════════════════════
+# Monad is a parallel EVM chain with different nonce handling behavior.
+# When sending multiple transactions in parallel (default forge behavior),
+# nonce conflicts may cause some transactions to fail.
+#
+# Solution: Use --slow flag to send transactions sequentially, waiting for
+# each tx to be confirmed before sending the next one.
+# ════════════════════════════════════════════════════════════════════════════
+
+EXTRA_FLAGS=""
+if [[ "$CHAIN" == "monad" ]]; then
+    echo -e "${YELLOW}⚠️  Monad detected: Using --slow mode to avoid nonce conflicts${NC}"
+    echo ""
+    EXTRA_FLAGS="--slow"
+fi
+
 # Run forge script
 forge script script/PostDeployConfig.s.sol:PostDeployConfig \
     --rpc-url "$RPC_URL" \
     --private-key "$PRIVATE_KEY" \
     --broadcast \
+    $EXTRA_FLAGS \
     -vvvv
 
 echo ""
-echo -e "${GREEN} Configuration Complete!${NC}"
+echo -e "${GREEN}✅ Configuration Complete!${NC}"

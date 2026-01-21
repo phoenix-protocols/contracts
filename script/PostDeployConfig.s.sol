@@ -245,45 +245,70 @@ contract PostDeployConfig is Script {
     function _configureLockPeriods() internal {
         console.log("--- Configuring Lock Periods ---");
 
+        // Check if any lock period config exists (use 0 as sentinel value)
+        uint256 mult7d = vm.envOr("LOCK_7D_MULT", uint256(0));
+        uint256 mult31d = vm.envOr("LOCK_31D_MULT", uint256(0));
+        uint256 mult89d = vm.envOr("LOCK_89D_MULT", uint256(0));
+        uint256 mult181d = vm.envOr("LOCK_181D_MULT", uint256(0));
+
+        // Skip if no lock period multipliers configured
+        if (mult7d == 0 && mult31d == 0 && mult89d == 0 && mult181d == 0) {
+            console.log("  [SKIP] No LOCK_*_MULT configured, skipping lock period setup");
+            return;
+        }
+
         FarmUpgradeable farmContract = FarmUpgradeable(farm);
 
-        uint256[] memory lockPeriods = new uint256[](4);
-        uint16[] memory multipliers = new uint16[](4);
+        // Count how many periods are configured
+        uint256 count = 0;
+        if (mult7d > 0) count++;
+        if (mult31d > 0) count++;
+        if (mult89d > 0) count++;
+        if (mult181d > 0) count++;
 
-        // Read from .env with defaults
-        uint16 mult7d = uint16(vm.envOr("LOCK_7D_MULT", uint256(10000)));
-        uint16 mult31d = uint16(vm.envOr("LOCK_31D_MULT", uint256(12000)));
-        uint16 mult89d = uint16(vm.envOr("LOCK_89D_MULT", uint256(15000)));
-        uint16 mult181d = uint16(vm.envOr("LOCK_181D_MULT", uint256(20000)));
+        uint256[] memory lockPeriods = new uint256[](count);
+        uint16[] memory multipliers = new uint16[](count);
+        uint256[] memory caps = new uint256[](count);
+
+        uint256 idx = 0;
 
         // 7 days
-        lockPeriods[0] = 7 days;
-        multipliers[0] = mult7d;
+        if (mult7d > 0) {
+            lockPeriods[idx] = 7 days;
+            multipliers[idx] = uint16(mult7d);
+            caps[idx] = vm.envOr("LOCK_7D_CAP", uint256(0));
+            console.log("  7d:", mult7d, "x, cap:", caps[idx]);
+            idx++;
+        }
 
         // 31 days
-        lockPeriods[1] = 31 days;
-        multipliers[1] = mult31d;
+        if (mult31d > 0) {
+            lockPeriods[idx] = 31 days;
+            multipliers[idx] = uint16(mult31d);
+            caps[idx] = vm.envOr("LOCK_31D_CAP", uint256(0));
+            console.log("  31d:", mult31d, "x, cap:", caps[idx]);
+            idx++;
+        }
 
         // 89 days
-        lockPeriods[2] = 89 days;
-        multipliers[2] = mult89d;
+        if (mult89d > 0) {
+            lockPeriods[idx] = 89 days;
+            multipliers[idx] = uint16(mult89d);
+            caps[idx] = vm.envOr("LOCK_89D_CAP", uint256(0));
+            console.log("  89d:", mult89d, "x, cap:", caps[idx]);
+            idx++;
+        }
 
         // 181 days
-        lockPeriods[3] = 181 days;
-        multipliers[3] = mult181d;
-        // Pool caps from .env (0 = no limit)
-        uint256[] memory caps = new uint256[](4);
-        caps[0] = vm.envOr("LOCK_7D_CAP", uint256(0));
-        caps[1] = vm.envOr("LOCK_31D_CAP", uint256(0));
-        caps[2] = vm.envOr("LOCK_89D_CAP", uint256(0));
-        caps[3] = vm.envOr("LOCK_181D_CAP", uint256(0));
+        if (mult181d > 0) {
+            lockPeriods[idx] = 181 days;
+            multipliers[idx] = uint16(mult181d);
+            caps[idx] = vm.envOr("LOCK_181D_CAP", uint256(0));
+            console.log("  181d:", mult181d, "x, cap:", caps[idx]);
+            idx++;
+        }
 
         farmContract.batchSetLockPeriodConfig(lockPeriods, multipliers, caps);
-
-        console.log("  7d:", mult7d, "x, cap:", caps[0]);
-        console.log("  31d:", mult31d, "x, cap:", caps[1]);
-        console.log("  89d:", mult89d, "x, cap:", caps[2]);
-        console.log("  181d:", mult181d, "x, cap:", caps[3]);
     }
 
     // ════════════════════════════════════════════════════════════════════════
