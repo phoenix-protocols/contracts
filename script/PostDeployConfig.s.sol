@@ -130,6 +130,9 @@ contract PostDeployConfig is Script {
         // Configure fee rates (bridge fee needed for cross-chain from this chain)
         _configureFeeRates();
 
+        // Configure roles (BRIDGE_ROLE for relayer to execute bridgeFinalizedPUSD)
+        _configureRoles();
+
         vm.stopBroadcast();
 
         console.log("");
