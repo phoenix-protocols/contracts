@@ -300,6 +300,23 @@ contract yPUSD is
     }
 
     /**
+     * @notice Get pending yield distribution info
+     * @return pendingYield Amount of yield still waiting to be released
+     * @return remainingTime Seconds until all pending yield is fully released (0 if completed)
+     */
+    function getPendingYieldInfo() external view returns (
+        uint256 pendingYield,
+        uint256 remainingTime
+    ) {
+        pendingYield = _getUnvestedYield();
+        if (vestingEndTime > block.timestamp) {
+            remainingTime = vestingEndTime - block.timestamp;
+        } else {
+            remainingTime = 0;
+        }
+    }
+
+    /**
      * @notice Get the current exchange rate (assets per share)
      * @dev With offset=0, this is simply totalAssets / totalSupply
      *      When totalSupply=0, returns 1e18 (1:1 ratio)

@@ -507,7 +507,7 @@ contract FarmUpgradeable is Initializable, AccessControlUpgradeable, ReentrancyG
             
             // Check if vault has enough reserve for compounding
             if (totalReward > 0) {
-                uint256 reserveBalance = pusdToken.balanceOf(address(vault));
+                uint256 reserveBalance = vault.getRewardReserve();
                 if (reserveBalance < totalReward) {
                     return (0, "Low reserve");
                 }
@@ -720,19 +720,19 @@ contract FarmUpgradeable is Initializable, AccessControlUpgradeable, ReentrancyG
      * @param user User address
      * @param tokenId Stake record ID
      * @return stakeRecord Stake record details
-     * @return pendingReward Pending rewards
+     * @return totalReward Total unclaimed rewards (currentReward + pendingReward)
      * @return unlockTime Unlock time
      * @return isUnlocked Whether already unlocked
      * @return remainingTime Remaining lock time
      */
-    function getStakeDetails(address user, uint256 tokenId) external view returns (StakeRecord memory stakeRecord, uint256 pendingReward, uint256 unlockTime, bool isUnlocked, uint256 remainingTime) {
+    function getStakeDetails(address user, uint256 tokenId) external view returns (StakeRecord memory stakeRecord, uint256 totalReward, uint256 unlockTime, bool isUnlocked, uint256 remainingTime) {
         NFTManager nftManager = NFTManager(_nftManager);
         require(nftManager.ownerOf(tokenId) == user, "Not owner");
         stakeRecord = nftManager.getStakeRecord(tokenId);
         require(stakeRecord.active, "Inactive stake");
 
-        // Calculate rewards using snapshot method
-        pendingReward = _calculateRewardWithHistory(stakeRecord.amount, stakeRecord.lastClaimTime, block.timestamp, stakeRecord.rewardMultiplier) + stakeRecord.pendingReward;
+        // Total unclaimed rewards = calculated current reward + stored pending reward
+        totalReward = _calculateStakeReward(stakeRecord) + stakeRecord.pendingReward;
 
         unlockTime = stakeRecord.startTime + stakeRecord.lockPeriod;
         isUnlocked = block.timestamp >= unlockTime;
@@ -853,6 +853,9 @@ contract FarmUpgradeable is Initializable, AccessControlUpgradeable, ReentrancyG
      */
     function onNFTTransfer(address from, address to, uint256 tokenId) external {
         require(msg.sender == _nftManager, "Only NFTManager");
+        
+        // Check max stakes limit for receiver
+        require(userAssets[to].tokenIds.length < maxStakesPerUser, "Max stakes reached");
         
         // Remove tokenId from sender's array
         _removeTokenIdFromUser(from, tokenId);

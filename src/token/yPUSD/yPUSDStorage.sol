@@ -12,8 +12,8 @@ contract yPUSDStorage {
     /// @notice Role for injecting yield into the vault
     bytes32 public constant YIELD_INJECTOR_ROLE = keccak256("YIELD_INJECTOR_ROLE");
 
-    /// @notice Minimum vesting duration (1 day)
-    uint256 public constant MIN_VESTING_DURATION = 1 days;
+    /// @notice Minimum vesting duration (1 hour)
+    uint256 public constant MIN_VESTING_DURATION = 1 hours;
 
     /// @notice Maximum vesting duration (30 days)
     uint256 public constant MAX_VESTING_DURATION = 30 days;
