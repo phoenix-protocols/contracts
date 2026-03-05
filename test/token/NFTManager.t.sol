@@ -60,6 +60,7 @@ contract NFTManagerTest is Test, NFTManager_Deployer_Base {
         vm.prank(farm);
         uint256 tokenId = nft.mintStakeNFT(
             user,
+            1, // poolId
             amount,
             lockPeriod,
             rewardMultiplier,
@@ -89,6 +90,7 @@ contract NFTManagerTest is Test, NFTManager_Deployer_Base {
         vm.expectRevert("NFTManager: not authorized to mint");
         nft.mintStakeNFT(
             user,
+            1, // poolId
             amount,
             lockPeriod,
             rewardMultiplier,
@@ -109,6 +111,7 @@ contract NFTManagerTest is Test, NFTManager_Deployer_Base {
         vm.prank(farm);
         tokenId = nft.mintStakeNFT(
             user,
+            1, // poolId
             amount,
             lockPeriod,
             rewardMultiplier,
@@ -288,7 +291,7 @@ contract NFTManagerTest is Test, NFTManager_Deployer_Base {
 
     function test_MintStakeNFT_OwnerCanMint() public {
         vm.prank(admin); // admin is owner
-        uint256 tokenId = nft.mintStakeNFT(user, 100 ether, 30 days, 1000, 5 ether);
+        uint256 tokenId = nft.mintStakeNFT(user, 1, 100 ether, 30 days, 1000, 5 ether);
         assertEq(nft.ownerOf(tokenId), user);
     }
 
@@ -387,7 +390,7 @@ contract NFTManagerTest is Test, NFTManager_Deployer_Base {
         assertEq(nft.totalSupply(), 1);
 
         vm.prank(farm);
-        nft.mintStakeNFT(user, 50 ether, 60 days, 1500, 0);
+        nft.mintStakeNFT(user, 1, 50 ether, 60 days, 1500, 0);
         assertEq(nft.totalSupply(), 2);
     }
 
@@ -395,7 +398,7 @@ contract NFTManagerTest is Test, NFTManager_Deployer_Base {
         uint256 tokenId1 = _mintOne();
         
         vm.prank(farm);
-        uint256 tokenId2 = nft.mintStakeNFT(admin, 50 ether, 60 days, 1500, 0);
+        uint256 tokenId2 = nft.mintStakeNFT(admin, 1, 50 ether, 60 days, 1500, 0);
 
         assertEq(nft.tokenByIndex(0), tokenId1);
         assertEq(nft.tokenByIndex(1), tokenId2);
@@ -412,7 +415,7 @@ contract NFTManagerTest is Test, NFTManager_Deployer_Base {
         uint256 tokenId1 = _mintOne(); // Minted to user
         
         vm.prank(farm);
-        uint256 tokenId2 = nft.mintStakeNFT(user, 50 ether, 60 days, 1500, 0);
+        uint256 tokenId2 = nft.mintStakeNFT(user, 1, 50 ether, 60 days, 1500, 0);
 
         assertEq(nft.tokenOfOwnerByIndex(user, 0), tokenId1);
         assertEq(nft.tokenOfOwnerByIndex(user, 1), tokenId2);

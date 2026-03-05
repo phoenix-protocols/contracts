@@ -53,22 +53,13 @@ abstract contract FarmStorage is IFarm {
     APYRecord[] public apyHistory; // APY change history
     uint16 public maxAPYHistory = 1000; // Maximum history record count (configurable, max 65535)
 
-    /* ========== Staking Multiplier Configuration System ========== */
-
-    // Multiplier configuration for different lock periods (dynamically adjustable)
-    mapping(uint256 => uint16) public lockPeriodMultipliers;
-
-    // Array of supported lock periods
-    uint256[] public supportedLockPeriods;
-
     /* ========== Storage Optimization Configuration ========== */
     uint16 public maxStakesPerUser = 1000; // Maximum stakes per user (configurable, max 65535)
 
-    /* ========== Pool TVL Tracking ========== */
-    mapping(uint256 => uint256) public poolTVL; // Total locked value per lock period
-
-    /* ========== Pool Cap Configuration ========== */
-    mapping(uint256 => uint256) public poolCap; // lockPeriod => max TVL
+    /* ========== Pool Management ========== */
+    uint256 public nextPoolId = 1; // Next pool ID (starts from 1, 0 is invalid)
+    mapping(uint256 => Pool) public pools; // poolId => Pool
+    mapping(bytes32 => bool) public poolNameExists; // keccak256(name) => exists (uniqueness check)
 
     /* ========== Bridge related ========== */
     address public bridgeMessenger;

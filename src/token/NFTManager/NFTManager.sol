@@ -98,14 +98,14 @@ contract NFTManager is Initializable, ERC721BurnableUpgradeable, ERC721Enumerabl
      * @notice Mint a new NFT representing a staking record.
      * @dev Stores a IFarm.StakeRecord in on-chain metadata.
      */
-    function mintStakeNFT(address to, uint256 amount, uint64 lockPeriod, uint16 rewardMultiplier, uint256 pendingReward) external onlyMinter returns (uint256) {
+    function mintStakeNFT(address to, uint256 poolId, uint256 amount, uint64 lockPeriod, uint16 rewardMultiplier, uint256 pendingReward) external onlyMinter returns (uint256) {
         uint256 tokenId = _nextTokenId();
 
         _safeMint(to, tokenId);
 
         uint64 currentTime = uint64(block.timestamp);
 
-        _stakeRecords[tokenId] = IFarm.StakeRecord({amount: amount, startTime: currentTime, lockPeriod: lockPeriod, lastClaimTime: currentTime, rewardMultiplier: rewardMultiplier, active: true, pendingReward: pendingReward});
+        _stakeRecords[tokenId] = IFarm.StakeRecord({poolId: poolId, amount: amount, startTime: currentTime, lockPeriod: lockPeriod, lastClaimTime: currentTime, rewardMultiplier: rewardMultiplier, active: true, pendingReward: pendingReward});
 
         emit StakeNFTMinted(tokenId, to, amount, currentTime, lockPeriod, rewardMultiplier, pendingReward);
 

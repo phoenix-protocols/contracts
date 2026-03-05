@@ -2,7 +2,56 @@
 pragma solidity ^0.8.20;
 
 interface IFarm {
+    /* ========== Custom Errors ========== */
+    error PoolNotExists();
+    error PoolNotEnabled();
+    error PoolFull();
+    error LowPUSD();
+    error InactiveStake();
+    error ZeroAmount();
+    error StillLocked();
+    error NotOwner();
+    error MaxStakesReached();
+    error LowReserve();
+    error LengthMismatch();
+    error FeeOverflow();
+    error BadMultiplier();
+    error NameExists();
+    error InvalidPeriod();
+    error InvalidFeeType();
+    error InvalidChain();
+    error InvalidAmount();
+    error FeeTooHigh();
+    error EmptyName();
+    error EmptyArrays();
+    error BadRecipient();
+    error BadAsset();
+    error TooSmall();
+    error StakeNotActive();
+    error PeriodNotFound();
+    error OnlyNFTManager();
+    error NoStakes();
+    error Unauthorized();
+    error InvalidConfig();
+    error AlreadyActioned();
+    error NotEnoughBalance();
+    error InvalidIndex();
+    error ZeroAddress();
+    error CapExceeded();
+
     /* ========== Structs ========== */
+
+    /* ========== Pool Configuration ========== */
+    struct Pool {
+        string name;             // Pool name, e.g. "2026Q1-30D"
+        uint256 lockPeriod;      // Lock duration in seconds
+        uint256 cap;             // Maximum capacity
+        uint256 used;            // Cumulative used quota (never decreases)
+        uint256 tvl;             // Current total value locked
+        uint16 rewardMultiplier; // Reward multiplier (basis points, 10000 = 1.0x)
+        bool enabled;            // Whether new stakes are allowed
+        uint256 createdAt;       // Creation timestamp (>0 means exists)
+    }
 
     /* ========== User Asset Information ========== */
     struct UserAssetInfo {
@@ -12,9 +61,10 @@ interface IFarm {
 
     /* ========== DAO Staking Pool - Each stake recorded independently ========== */
     struct StakeRecord {
+        uint256 poolId;          // Pool ID
         uint256 amount;
         uint256 startTime;
-        uint256 lockPeriod;
+        uint256 lockPeriod;      // Lock duration (redundant for Vault/NFT display)
         uint256 lastClaimTime;
         uint16 rewardMultiplier;
         bool active;
@@ -24,6 +74,8 @@ interface IFarm {
     // Stake detail structure for paginated queries
     struct StakeDetail {
         uint256 tokenId;
+        uint256 poolId;          // Pool ID
+        string poolName;         // Pool name
         uint256 amount;
         uint256 startTime;
         uint256 lockPeriod;
@@ -63,12 +115,13 @@ interface IFarm {
     // System configuration update events
     event SystemConfigUpdated(uint256 oldMinDeposit, uint256 newMinDeposit, uint256 oldMinLock, uint256 newMinLock, uint256 oldMaxStakes, uint256 newMaxStakes, uint256 oldMaxHistory, uint256 newMaxHistory);
 
-    // Multiplier configuration events
-    event MultiplierUpdated(uint256 indexed lockPeriod, uint16 oldMultiplier, uint16 newMultiplier);
-    event LockPeriodAdded(uint256 indexed lockPeriod, uint16 multiplier);
-    event LockPeriodRemoved(uint256 indexed lockPeriod);
-    event PoolCapUpdated(uint256 indexed lockPeriod, uint256 cap);
     event NFTManagerUpdated(address indexed nftManager);
+
+    // Pool management events
+    event PoolCreated(uint256 indexed poolId, string name, uint256 lockPeriod, uint256 cap);
+    event PoolEnabledChanged(uint256 indexed poolId, bool enabled);
+    event PoolCapUpdated(uint256 indexed poolId, uint256 oldCap, uint256 newCap);
+    event PoolNameUpdated(uint256 indexed poolId, string oldName, string newName);
 
     // Bridge events
     event BridgePUSDInitiated(uint256 indexed sourceChainId, uint256 indexed destChainId, address indexed from, address to, uint256 totalAmount, uint256 netAmount, uint256 fee);
@@ -85,9 +138,9 @@ interface IFarm {
 
     function withdrawAsset(address asset, uint256 pusdAmount) external;
 
-    function stakePUSD(uint256 amount, uint256 lockPeriod) external returns (uint256 tokenId);
+    function stakePUSD(uint256 poolId, uint256 amount) external returns (uint256 tokenId);
 
-    function renewStake(uint256 tokenId, uint256 newLockPeriod) external;
+    function renewStake(uint256 tokenId, uint256 newPoolId) external;
 
     function unstakePUSD(uint256 tokenId) external;
 
@@ -95,17 +148,17 @@ interface IFarm {
 
     function setAPY(uint256 newAPY) external;
 
-    function getSupportedLockPeriodsWithMultipliers() external view returns (uint256[] memory lockPeriods, uint16[] memory multipliers);
-
     function getUserInfo(address user) external view returns (uint256 pusdBalance, uint256 ypusdBalance, uint256 totalStakedAmount, uint256 totalStakeRewards, uint256 activeStakeCount);
 
     function getStakeDetails(address user, uint256 tokenId) external view returns (StakeRecord memory stakeRecord, uint256 pendingReward, uint256 unlockTime, bool isUnlocked, uint256 remainingTime);
 
     function getUserStakeDetails(address user, uint256 offset, uint256 limit, bool activeOnly, uint256 lockPeriod) external view returns (StakeDetail[] memory stakeDetails, uint256 totalCount, bool hasMore);
 
-    function batchSetLockPeriodConfig(uint256[] calldata lockPeriods, uint16[] calldata multipliers, uint256[] calldata caps) external;
-
-    function removeLockPeriod(uint256 lockPeriod) external;
+    // Pool management functions
+    function createPool(string calldata name, uint256 lockPeriod, uint256 cap, uint16 multiplier) external returns (uint256 poolId);
+    function updatePool(uint256 poolId, uint8 fieldType, uint256 value) external;
+    function setPoolName(uint256 poolId, string calldata newName) external;
+    function getPool(uint256 poolId) external view returns (Pool memory);
 
     function updateSystemConfig(uint256 configType, uint256 newValue) external;
 
@@ -115,9 +168,6 @@ interface IFarm {
 
     /// @notice Get current base APY in basis points
     function currentAPY() external view returns (uint16);
-
-    /// @notice Get reward multiplier for a specific lock period
-    function lockPeriodMultipliers(uint256 lockPeriod) external view returns (uint16);
 
     function pause() external;
 

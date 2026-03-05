@@ -1,0 +1,575 @@
+═══════════════════════════════════════════════════════════════════
+Starting batch upgrade for yPUSD and Farm contracts
+═══════════════════════════════════════════════════════════════════
+
+═══════════════════════════════════════════════════════════════════
+📍 Upgrading on BSC (Chain ID: 56)
+═══════════════════════════════════════════════════════════════════
+
+🔄 Upgrading yPUSD...
+No files changed, compilation skipped
+Script ran successfully.
+
+== Logs ==
+  yPUSD proxy addr: 0x5E16e1F5BABE0b86094fbfC11EC0849F6B07f487
+  yPUSD new impl addr: 0x5E16e1F5BABE0b86094fbfC11EC0849F6B07f487
+
+## Setting up 1 EVM.
+
+==========================
+
+Chain 56
+
+Estimated gas price: 0.05 gwei
+
+Estimated total gas used for script: 3263057
+
+Estimated amount required: 0.00016315285 BNB
+
+==========================
+
+
+==========================
+
+ONCHAIN EXECUTION COMPLETE & SUCCESSFUL.
+
+Transactions saved to: /Users/kalon/Desktop/code_project/phoenix-contracts/broadcast/yPUSD_Deployer.s.sol/56/upgrade-latest.json
+
+Sensitive values saved to: /Users/kalon/Desktop/code_project/phoenix-contracts/cache/yPUSD_Deployer.s.sol/56/upgrade-latest.json
+
+✅ yPUSD upgraded on BSC
+
+🔄 Upgrading Farm...
+No files changed, compilation skipped
+Script ran successfully.
+
+== Logs ==
+  Farm proxy address: 0x0020cA402e8b928FcCE234C00cab0De1c74Ca72d
+  Farm upgraded, new impl deployed
+
+## Setting up 1 EVM.
+
+==========================
+
+Chain 56
+
+Estimated gas price: 0.05 gwei
+
+Estimated total gas used for script: 7044895
+
+Estimated amount required: 0.00035224475 BNB
+
+==========================
+
+
+==========================
+
+ONCHAIN EXECUTION COMPLETE & SUCCESSFUL.
+
+Transactions saved to: /Users/kalon/Desktop/code_project/phoenix-contracts/broadcast/Farm_Deployer.s.sol/56/upgrade-latest.json
+
+Sensitive values saved to: /Users/kalon/Desktop/code_project/phoenix-contracts/cache/Farm_Deployer.s.sol/56/upgrade-latest.json
+
+✅ Farm upgraded on BSC
+
+───────────────────────────────────────────────────────────────────
+
+═══════════════════════════════════════════════════════════════════
+📍 Upgrading on Arbitrum (Chain ID: 42161)
+═══════════════════════════════════════════════════════════════════
+
+🔄 Upgrading yPUSD...
+No files changed, compilation skipped
+Script ran successfully.
+
+== Logs ==
+  yPUSD proxy addr: 0x5E16e1F5BABE0b86094fbfC11EC0849F6B07f487
+  yPUSD new impl addr: 0x5E16e1F5BABE0b86094fbfC11EC0849F6B07f487
+
+## Setting up 1 EVM.
+
+==========================
+
+Chain 42161
+
+Estimated gas price: 0.041080001 gwei
+
+Estimated total gas used for script: 3296185
+
+Estimated amount required: 0.000135407283096185 ETH
+
+==========================
+
+
+==========================
+
+ONCHAIN EXECUTION COMPLETE & SUCCESSFUL.
+
+Transactions saved to: /Users/kalon/Desktop/code_project/phoenix-contracts/broadcast/yPUSD_Deployer.s.sol/42161/upgrade-latest.json
+
+Sensitive values saved to: /Users/kalon/Desktop/code_project/phoenix-contracts/cache/yPUSD_Deployer.s.sol/42161/upgrade-latest.json
+
+✅ yPUSD upgraded on Arbitrum
+
+🔄 Upgrading Farm...
+No files changed, compilation skipped
+Script ran successfully.
+
+== Logs ==
+  Farm proxy address: 0x0020cA402e8b928FcCE234C00cab0De1c74Ca72d
+  Farm upgraded, new impl deployed
+
+## Setting up 1 EVM.
+
+==========================
+
+Chain 42161
+
+Estimated gas price: 0.040232001 gwei
+
+Estimated total gas used for script: 7115354
+
+Estimated amount required: 0.000286264929243354 ETH
+
+==========================
+
+
+==========================
+
+ONCHAIN EXECUTION COMPLETE & SUCCESSFUL.
+
+Transactions saved to: /Users/kalon/Desktop/code_project/phoenix-contracts/broadcast/Farm_Deployer.s.sol/42161/upgrade-latest.json
+
+Sensitive values saved to: /Users/kalon/Desktop/code_project/phoenix-contracts/cache/Farm_Deployer.s.sol/42161/upgrade-latest.json
+
+✅ Farm upgraded on Arbitrum
+
+───────────────────────────────────────────────────────────────────
+
+═══════════════════════════════════════════════════════════════════
+📍 Upgrading on Polygon (Chain ID: 137)
+═══════════════════════════════════════════════════════════════════
+
+🔄 Upgrading yPUSD...
+No files changed, compilation skipped
+Script ran successfully.
+
+== Logs ==
+  yPUSD proxy addr: 0x5E16e1F5BABE0b86094fbfC11EC0849F6B07f487
+  yPUSD new impl addr: 0x5E16e1F5BABE0b86094fbfC11EC0849F6B07f487
+
+## Setting up 1 EVM.
+
+==========================
+
+Chain 137
+
+Estimated gas price: 1354.065781324 gwei
+
+Estimated total gas used for script: 3263057
+
+Estimated amount required: 4.418393826209747468 POL
+
+==========================
+
+
+==========================
+
+ONCHAIN EXECUTION COMPLETE & SUCCESSFUL.
+
+Transactions saved to: /Users/kalon/Desktop/code_project/phoenix-contracts/broadcast/yPUSD_Deployer.s.sol/137/upgrade-latest.json
+
+Sensitive values saved to: /Users/kalon/Desktop/code_project/phoenix-contracts/cache/yPUSD_Deployer.s.sol/137/upgrade-latest.json
+
+✅ yPUSD upgraded on Polygon
+
+🔄 Upgrading Farm...
+No files changed, compilation skipped
+Script ran successfully.
+
+== Logs ==
+  Farm proxy address: 0x0020cA402e8b928FcCE234C00cab0De1c74Ca72d
+  Farm upgraded, new impl deployed
+
+## Setting up 1 EVM.
+
+==========================
+
+Chain 137
+
+Estimated gas price: 1494.355326406 gwei
+
+Estimated total gas used for script: 7044895
+
+Estimated amount required: 10.52757636722099737 POL
+
+==========================
+
+
+==========================
+
+ONCHAIN EXECUTION COMPLETE & SUCCESSFUL.
+
+Transactions saved to: /Users/kalon/Desktop/code_project/phoenix-contracts/broadcast/Farm_Deployer.s.sol/137/upgrade-latest.json
+
+Sensitive values saved to: /Users/kalon/Desktop/code_project/phoenix-contracts/cache/Farm_Deployer.s.sol/137/upgrade-latest.json
+
+✅ Farm upgraded on Polygon
+
+───────────────────────────────────────────────────────────────────
+
+═══════════════════════════════════════════════════════════════════
+📍 Upgrading on Avalanche (Chain ID: 43114)
+═══════════════════════════════════════════════════════════════════
+
+🔄 Upgrading yPUSD...
+No files changed, compilation skipped
+Script ran successfully.
+
+== Logs ==
+  yPUSD proxy addr: 0x5E16e1F5BABE0b86094fbfC11EC0849F6B07f487
+  yPUSD new impl addr: 0x5E16e1F5BABE0b86094fbfC11EC0849F6B07f487
+
+## Setting up 1 EVM.
+
+==========================
+
+Chain 43114
+
+Estimated gas price: 0.189032142 gwei
+
+Estimated total gas used for script: 3266136
+
+Estimated amount required: 0.000617404684143312 ETH
+
+==========================
+
+
+==========================
+
+ONCHAIN EXECUTION COMPLETE & SUCCESSFUL.
+
+Transactions saved to: /Users/kalon/Desktop/code_project/phoenix-contracts/broadcast/yPUSD_Deployer.s.sol/43114/upgrade-latest.json
+
+Sensitive values saved to: /Users/kalon/Desktop/code_project/phoenix-contracts/cache/yPUSD_Deployer.s.sol/43114/upgrade-latest.json
+
+✅ yPUSD upgraded on Avalanche
+
+🔄 Upgrading Farm...
+No files changed, compilation skipped
+Script ran successfully.
+
+== Logs ==
+  Farm proxy address: 0x0020cA402e8b928FcCE234C00cab0De1c74Ca72d
+  Farm upgraded, new impl deployed
+
+## Setting up 1 EVM.
+
+==========================
+
+Chain 43114
+
+Estimated gas price: 0.204302988 gwei
+
+Estimated total gas used for script: 7044895
+
+Estimated amount required: 0.00143929309864626 ETH
+
+==========================
+
+
+==========================
+
+ONCHAIN EXECUTION COMPLETE & SUCCESSFUL.
+
+Transactions saved to: /Users/kalon/Desktop/code_project/phoenix-contracts/broadcast/Farm_Deployer.s.sol/43114/upgrade-latest.json
+
+Sensitive values saved to: /Users/kalon/Desktop/code_project/phoenix-contracts/cache/Farm_Deployer.s.sol/43114/upgrade-latest.json
+
+✅ Farm upgraded on Avalanche
+
+───────────────────────────────────────────────────────────────────
+
+═══════════════════════════════════════════════════════════════════
+📍 Upgrading on Ethereum (Chain ID: 1)
+═══════════════════════════════════════════════════════════════════
+
+🔄 Upgrading yPUSD...
+No files changed, compilation skipped
+Script ran successfully.
+
+== Logs ==
+  yPUSD proxy addr: 0x5E16e1F5BABE0b86094fbfC11EC0849F6B07f487
+  yPUSD new impl addr: 0x5E16e1F5BABE0b86094fbfC11EC0849F6B07f487
+
+## Setting up 1 EVM.
+
+==========================
+
+Chain 1
+
+Estimated gas price: 0.091366619 gwei
+
+Estimated total gas used for script: 3263057
+
+Estimated amount required: 0.000298134485694283 ETH
+
+==========================
+
+
+==========================
+
+ONCHAIN EXECUTION COMPLETE & SUCCESSFUL.
+
+Transactions saved to: /Users/kalon/Desktop/code_project/phoenix-contracts/broadcast/yPUSD_Deployer.s.sol/1/upgrade-latest.json
+
+Sensitive values saved to: /Users/kalon/Desktop/code_project/phoenix-contracts/cache/yPUSD_Deployer.s.sol/1/upgrade-latest.json
+
+✅ yPUSD upgraded on Ethereum
+
+🔄 Upgrading Farm...
+No files changed, compilation skipped
+Script ran successfully.
+
+== Logs ==
+  Farm proxy address: 0x0020cA402e8b928FcCE234C00cab0De1c74Ca72d
+  Farm upgraded, new impl deployed
+
+## Setting up 1 EVM.
+
+==========================
+
+Chain 1
+
+Estimated gas price: 0.121936275 gwei
+
+Estimated total gas used for script: 7044895
+
+Estimated amount required: 0.000859028254066125 ETH
+
+==========================
+
+
+==========================
+
+ONCHAIN EXECUTION COMPLETE & SUCCESSFUL.
+
+Transactions saved to: /Users/kalon/Desktop/code_project/phoenix-contracts/broadcast/Farm_Deployer.s.sol/1/upgrade-latest.json
+
+Sensitive values saved to: /Users/kalon/Desktop/code_project/phoenix-contracts/cache/Farm_Deployer.s.sol/1/upgrade-latest.json
+
+✅ Farm upgraded on Ethereum
+
+───────────────────────────────────────────────────────────────────
+
+═══════════════════════════════════════════════════════════════════
+📍 Upgrading on Base (Chain ID: 8453)
+═══════════════════════════════════════════════════════════════════
+
+🔄 Upgrading yPUSD...
+No files changed, compilation skipped
+Script ran successfully.
+
+== Logs ==
+  yPUSD proxy addr: 0x5E16e1F5BABE0b86094fbfC11EC0849F6B07f487
+  yPUSD new impl addr: 0x5E16e1F5BABE0b86094fbfC11EC0849F6B07f487
+
+## Setting up 1 EVM.
+
+==========================
+
+Chain 8453
+
+Estimated gas price: 0.009510135 gwei
+
+Estimated total gas used for script: 3266136
+
+Estimated amount required: 0.00003106139428836 ETH
+
+==========================
+
+
+==========================
+
+ONCHAIN EXECUTION COMPLETE & SUCCESSFUL.
+
+Transactions saved to: /Users/kalon/Desktop/code_project/phoenix-contracts/broadcast/yPUSD_Deployer.s.sol/8453/upgrade-latest.json
+
+Sensitive values saved to: /Users/kalon/Desktop/code_project/phoenix-contracts/cache/yPUSD_Deployer.s.sol/8453/upgrade-latest.json
+
+✅ yPUSD upgraded on Base
+
+🔄 Upgrading Farm...
+No files changed, compilation skipped
+Script ran successfully.
+
+== Logs ==
+  Farm proxy address: 0x0020cA402e8b928FcCE234C00cab0De1c74Ca72d
+  Farm upgraded, new impl deployed
+
+## Setting up 1 EVM.
+
+==========================
+
+Chain 8453
+
+Estimated gas price: 0.009596883 gwei
+
+Estimated total gas used for script: 7044895
+
+Estimated amount required: 0.000067609033062285 ETH
+
+==========================
+
+
+==========================
+
+ONCHAIN EXECUTION COMPLETE & SUCCESSFUL.
+
+Transactions saved to: /Users/kalon/Desktop/code_project/phoenix-contracts/broadcast/Farm_Deployer.s.sol/8453/upgrade-latest.json
+
+Sensitive values saved to: /Users/kalon/Desktop/code_project/phoenix-contracts/cache/Farm_Deployer.s.sol/8453/upgrade-latest.json
+
+✅ Farm upgraded on Base
+
+───────────────────────────────────────────────────────────────────
+
+═══════════════════════════════════════════════════════════════════
+📍 Upgrading on Optimism (Chain ID: 10)
+═══════════════════════════════════════════════════════════════════
+
+🔄 Upgrading yPUSD...
+No files changed, compilation skipped
+Script ran successfully.
+
+== Logs ==
+  yPUSD proxy addr: 0x5E16e1F5BABE0b86094fbfC11EC0849F6B07f487
+  yPUSD new impl addr: 0x5E16e1F5BABE0b86094fbfC11EC0849F6B07f487
+
+## Setting up 1 EVM.
+
+==========================
+
+Chain 10
+
+Estimated gas price: 0.000063045 gwei
+
+Estimated total gas used for script: 3266136
+
+Estimated amount required: 0.00000020591354412 ETH
+
+==========================
+
+
+==========================
+
+ONCHAIN EXECUTION COMPLETE & SUCCESSFUL.
+
+Transactions saved to: /Users/kalon/Desktop/code_project/phoenix-contracts/broadcast/yPUSD_Deployer.s.sol/10/upgrade-latest.json
+
+Sensitive values saved to: /Users/kalon/Desktop/code_project/phoenix-contracts/cache/yPUSD_Deployer.s.sol/10/upgrade-latest.json
+
+✅ yPUSD upgraded on Optimism
+
+🔄 Upgrading Farm...
+No files changed, compilation skipped
+Script ran successfully.
+
+== Logs ==
+  Farm proxy address: 0x0020cA402e8b928FcCE234C00cab0De1c74Ca72d
+  Farm upgraded, new impl deployed
+
+## Setting up 1 EVM.
+
+==========================
+
+Chain 10
+
+Estimated gas price: 0.000063337 gwei
+
+Estimated total gas used for script: 7044895
+
+Estimated amount required: 0.000000446202514615 ETH
+
+==========================
+
+
+==========================
+
+ONCHAIN EXECUTION COMPLETE & SUCCESSFUL.
+
+Transactions saved to: /Users/kalon/Desktop/code_project/phoenix-contracts/broadcast/Farm_Deployer.s.sol/10/upgrade-latest.json
+
+Sensitive values saved to: /Users/kalon/Desktop/code_project/phoenix-contracts/cache/Farm_Deployer.s.sol/10/upgrade-latest.json
+
+✅ Farm upgraded on Optimism
+
+───────────────────────────────────────────────────────────────────
+
+═══════════════════════════════════════════════════════════════════
+📍 Upgrading on Monad (Chain ID: 143)
+═══════════════════════════════════════════════════════════════════
+
+🔄 Upgrading yPUSD...
+No files changed, compilation skipped
+Script ran successfully.
+
+== Logs ==
+  yPUSD proxy addr: 0x5E16e1F5BABE0b86094fbfC11EC0849F6B07f487
+  yPUSD new impl addr: 0x5E16e1F5BABE0b86094fbfC11EC0849F6B07f487
+
+## Setting up 1 EVM.
+
+==========================
+
+Chain 143
+
+Estimated gas price: 202.000000001 gwei
+
+Estimated total gas used for script: 3263057
+
+Estimated amount required: 0.659137514003263057 ETH
+
+==========================
+
+Transactions saved to: /Users/kalon/Desktop/code_project/phoenix-contracts/broadcast/yPUSD_Deployer.s.sol/143/upgrade-latest.json
+
+Sensitive values saved to: /Users/kalon/Desktop/code_project/phoenix-contracts/cache/yPUSD_Deployer.s.sol/143/upgrade-latest.json
+
+Error: Transaction Failure: 0x94cb94919651d0639902873e10d73a762c6227b6c1b3701c3d5546f9d6164ab6
+❌ yPUSD upgrade FAILED on Monad
+
+🔄 Upgrading Farm...
+No files changed, compilation skipped
+Script ran successfully.
+
+== Logs ==
+  Farm proxy address: 0x0020cA402e8b928FcCE234C00cab0De1c74Ca72d
+  Farm upgraded, new impl deployed
+
+## Setting up 1 EVM.
+
+==========================
+
+Chain 143
+
+Estimated gas price: 202.047950072 gwei
+
+Estimated total gas used for script: 7044895
+
+Estimated amount required: 1.42340659322248244 ETH
+
+==========================
+
+Transactions saved to: /Users/kalon/Desktop/code_project/phoenix-contracts/broadcast/Farm_Deployer.s.sol/143/upgrade-latest.json
+
+Sensitive values saved to: /Users/kalon/Desktop/code_project/phoenix-contracts/cache/Farm_Deployer.s.sol/143/upgrade-latest.json
+
+Error: Transaction Failure: 0x64163adcce9d89d8befc5cb59524ea87b16bfa18c227e11cad9dbe26b2810c1d
+❌ Farm upgrade FAILED on Monad
+
+───────────────────────────────────────────────────────────────────
+
+═══════════════════════════════════════════════════════════════════
+🎉 Batch upgrade complete!
+═══════════════════════════════════════════════════════════════════

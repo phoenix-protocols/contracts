@@ -60,20 +60,10 @@ contract FarmUnitTest is Test, Farm_Deployer_Base {
         farm.grantRole(farm.OPERATOR_ROLE(), operator);
         farm.setNFTManager(address(nftManager));
 
-        // Setup lock periods
-        uint256[] memory periods = new uint256[](3);
-        uint16[] memory multipliers = new uint16[](3);
-        uint256[] memory caps = new uint256[](3);
-        periods[0] = 30 days;
-        periods[1] = 90 days;
-        periods[2] = 180 days;
-        multipliers[0] = 10000;  // 1x
-        multipliers[1] = 15000;  // 1.5x
-        multipliers[2] = 20000;  // 2x
-        caps[0] = 0;  // no limit
-        caps[1] = 0;  // no limit
-        caps[2] = 0;  // no limit
-        farm.batchSetLockPeriodConfig(periods, multipliers, caps);
+        // Create pools for each lock period
+        farm.createPool("30D-Pool", 30 days, 0, 10000);
+        farm.createPool("90D-Pool", 90 days, 0, 15000);
+        farm.createPool("180D-Pool", 180 days, 0, 20000);
 
         // Set max stakes per user (configType=2)
         farm.updateSystemConfig(2, 1000);
@@ -233,38 +223,6 @@ contract FarmUnitTest is Test, Farm_Deployer_Base {
         farm.setAPY(3000);
     }
 
-    function test_BatchSetLockPeriodConfig() public {
-        uint256[] memory periods = new uint256[](1);
-        uint16[] memory multipliers = new uint16[](1);
-        uint256[] memory caps = new uint256[](1);
-        periods[0] = 365 days;
-        multipliers[0] = 30000;
-        caps[0] = 0;  // no limit
-
-        vm.prank(admin);
-        farm.batchSetLockPeriodConfig(periods, multipliers, caps);
-
-        // Verify new period works
-        vm.startPrank(user1);
-        pusd.approve(address(farm), 500 * 1e6);
-        uint256 tokenId = farm.stakePUSD(500 * 1e6, 365 days);
-        vm.stopPrank();
-
-        IFarm.StakeRecord memory record = nftManager.getStakeRecord(tokenId);
-        assertEq(record.rewardMultiplier, 30000);
-    }
-
-    function test_RemoveLockPeriod() public {
-        vm.prank(admin);
-        farm.removeLockPeriod(180 days);
-
-        vm.startPrank(user1);
-        pusd.approve(address(farm), 500 * 1e6);
-        vm.expectRevert("Invalid period");
-        farm.stakePUSD(500 * 1e6, 180 days);
-        vm.stopPrank();
-    }
-
     // ==================== Fee Tests ====================
 
     function test_SetFeeRates() public {
@@ -352,14 +310,6 @@ contract FarmUnitTest is Test, Farm_Deployer_Base {
         assertEq(pusdBalance, INITIAL_BALANCE - stakeAmount);
         assertEq(totalStakedAmount, stakeAmount);
         assertEq(activeStakeCount, 1);
-    }
-
-    function test_GetSupportedLockPeriodsWithMultipliers() public view {
-        (uint256[] memory periods, uint16[] memory multipliers) = farm.getSupportedLockPeriodsWithMultipliers();
-
-        assertEq(periods.length, 3);
-        assertEq(periods[0], 30 days);
-        assertEq(multipliers[0], 10000);
     }
 
     // ==================== Multiple Stakes Tests ====================

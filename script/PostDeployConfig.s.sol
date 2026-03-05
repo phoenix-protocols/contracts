@@ -243,75 +243,57 @@ contract PostDeployConfig is Script {
     }
 
     // ════════════════════════════════════════════════════════════════════════
-    // FARM - Lock Periods
+    // FARM - Create Pools (replaces old lock period config)
     // ════════════════════════════════════════════════════════════════════════
     function _configureLockPeriods() internal {
-        console.log("--- Configuring Lock Periods ---");
+        console.log("--- Configuring Pools ---");
 
-        // Check if any lock period config exists (use 0 as sentinel value)
+        // Check if any pool config exists (use 0 as sentinel value for multiplier)
         uint256 mult7d = vm.envOr("LOCK_7D_MULT", uint256(0));
         uint256 mult31d = vm.envOr("LOCK_31D_MULT", uint256(0));
         uint256 mult89d = vm.envOr("LOCK_89D_MULT", uint256(0));
         uint256 mult181d = vm.envOr("LOCK_181D_MULT", uint256(0));
 
-        // Skip if no lock period multipliers configured
+        // Skip if no pool multipliers configured
         if (mult7d == 0 && mult31d == 0 && mult89d == 0 && mult181d == 0) {
-            console.log("  [SKIP] No LOCK_*_MULT configured, skipping lock period setup");
+            console.log("  [SKIP] No LOCK_*_MULT configured, skipping pool setup");
             return;
         }
 
         FarmUpgradeable farmContract = FarmUpgradeable(farm);
 
-        // Count how many periods are configured
-        uint256 count = 0;
-        if (mult7d > 0) count++;
-        if (mult31d > 0) count++;
-        if (mult89d > 0) count++;
-        if (mult181d > 0) count++;
-
-        uint256[] memory lockPeriods = new uint256[](count);
-        uint16[] memory multipliers = new uint16[](count);
-        uint256[] memory caps = new uint256[](count);
-
-        uint256 idx = 0;
-
+        // Create pools for each configured period
         // 7 days
         if (mult7d > 0) {
-            lockPeriods[idx] = 7 days;
-            multipliers[idx] = uint16(mult7d);
-            caps[idx] = vm.envOr("LOCK_7D_CAP", uint256(0));
-            console.log("  7d:", mult7d, "x, cap:", caps[idx]);
-            idx++;
+            uint256 cap = vm.envOr("LOCK_7D_CAP", uint256(0));
+            string memory name = vm.envOr("LOCK_7D_NAME", string("7D-Pool"));
+            farmContract.createPool(name, 7 days, cap, uint16(mult7d));
+            console.log("  Created 7d pool", name);
         }
 
         // 31 days
         if (mult31d > 0) {
-            lockPeriods[idx] = 31 days;
-            multipliers[idx] = uint16(mult31d);
-            caps[idx] = vm.envOr("LOCK_31D_CAP", uint256(0));
-            console.log("  31d:", mult31d, "x, cap:", caps[idx]);
-            idx++;
+            uint256 cap = vm.envOr("LOCK_31D_CAP", uint256(0));
+            string memory name = vm.envOr("LOCK_31D_NAME", string("31D-Pool"));
+            farmContract.createPool(name, 31 days, cap, uint16(mult31d));
+            console.log("  Created 31d pool", name);
         }
 
         // 89 days
         if (mult89d > 0) {
-            lockPeriods[idx] = 89 days;
-            multipliers[idx] = uint16(mult89d);
-            caps[idx] = vm.envOr("LOCK_89D_CAP", uint256(0));
-            console.log("  89d:", mult89d, "x, cap:", caps[idx]);
-            idx++;
+            uint256 cap = vm.envOr("LOCK_89D_CAP", uint256(0));
+            string memory name = vm.envOr("LOCK_89D_NAME", string("89D-Pool"));
+            farmContract.createPool(name, 89 days, cap, uint16(mult89d));
+            console.log("  Created 89d pool", name);
         }
 
         // 181 days
         if (mult181d > 0) {
-            lockPeriods[idx] = 181 days;
-            multipliers[idx] = uint16(mult181d);
-            caps[idx] = vm.envOr("LOCK_181D_CAP", uint256(0));
-            console.log("  181d:", mult181d, "x, cap:", caps[idx]);
-            idx++;
+            uint256 cap = vm.envOr("LOCK_181D_CAP", uint256(0));
+            string memory name = vm.envOr("LOCK_181D_NAME", string("181D-Pool"));
+            farmContract.createPool(name, 181 days, cap, uint16(mult181d));
+            console.log("  Created 181d pool", name);
         }
-
-        farmContract.batchSetLockPeriodConfig(lockPeriods, multipliers, caps);
     }
 
     // ════════════════════════════════════════════════════════════════════════

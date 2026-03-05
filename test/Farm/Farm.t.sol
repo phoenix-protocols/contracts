@@ -88,20 +88,10 @@ contract FarmIntegrationTest is Test, Farm_Deployer_Base {
         pusd.approve(address(vault), INITIAL_BALANCE * 100);
         vault.addRewardReserve(INITIAL_BALANCE * 100);
 
-        // Setup lock periods
-        uint256[] memory periods = new uint256[](3);
-        uint16[] memory multipliers = new uint16[](3);
-        uint256[] memory caps = new uint256[](3);
-        periods[0] = 30 days;
-        periods[1] = 90 days;
-        periods[2] = 180 days;
-        multipliers[0] = 10000;  // 1x
-        multipliers[1] = 15000;  // 1.5x
-        multipliers[2] = 20000;  // 2x
-        caps[0] = 0;  // no limit
-        caps[1] = 0;  // no limit
-        caps[2] = 0;  // no limit
-        farm.batchSetLockPeriodConfig(periods, multipliers, caps);
+        // Create pools for each lock period
+        farm.createPool("30D-Pool", 30 days, 0, 10000);
+        farm.createPool("90D-Pool", 90 days, 0, 15000);
+        farm.createPool("180D-Pool", 180 days, 0, 20000);
 
         // Set max stakes per user (configType=2)
         farm.updateSystemConfig(2, 1000);
@@ -363,46 +353,6 @@ contract FarmIntegrationTest is Test, Farm_Deployer_Base {
         farm.setAPY(3000);
     }
 
-    // ==================== Lock Period Configuration Tests ====================
-
-    function test_BatchSetLockPeriodConfig() public {
-        uint256[] memory periods = new uint256[](1);
-        uint16[] memory multipliers = new uint16[](1);
-        uint256[] memory caps = new uint256[](1);
-        periods[0] = 365 days;
-        multipliers[0] = 30000; // 3x
-        caps[0] = 0;  // no limit
-
-        vm.prank(admin);
-        farm.batchSetLockPeriodConfig(periods, multipliers, caps);
-
-        // Now 365 days should be valid
-        vm.startPrank(user1);
-        usdt.approve(address(vault), 1000 * 1e6);
-        farm.depositAsset(address(usdt), 1000 * 1e6);
-        pusd.approve(address(farm), 500 * 1e6);
-        uint256 tokenId = farm.stakePUSD(500 * 1e6, 365 days);
-        vm.stopPrank();
-
-        IFarm.StakeRecord memory record = nftManager.getStakeRecord(tokenId);
-        assertEq(record.lockPeriod, 365 days);
-        assertEq(record.rewardMultiplier, 30000);
-    }
-
-    function test_RemoveLockPeriod() public {
-        vm.prank(admin);
-        farm.removeLockPeriod(180 days);
-
-        // 180 days should no longer be valid
-        vm.startPrank(user1);
-        usdt.approve(address(vault), 1000 * 1e6);
-        farm.depositAsset(address(usdt), 1000 * 1e6);
-        pusd.approve(address(farm), 500 * 1e6);
-        vm.expectRevert("Invalid period");
-        farm.stakePUSD(500 * 1e6, 180 days);
-        vm.stopPrank();
-    }
-
     // ==================== View Function Tests ====================
 
     function test_GetUserInfo() public {
@@ -426,18 +376,6 @@ contract FarmIntegrationTest is Test, Farm_Deployer_Base {
         assertGt(pusdBalance, 0);
         assertEq(totalStakedAmount, stakeAmount);
         assertEq(activeStakeCount, 1);
-    }
-
-    function test_GetSupportedLockPeriodsWithMultipliers() public view {
-        (uint256[] memory periods, uint16[] memory multipliers) = farm.getSupportedLockPeriodsWithMultipliers();
-
-        assertEq(periods.length, 3);
-        assertEq(periods[0], 30 days);
-        assertEq(periods[1], 90 days);
-        assertEq(periods[2], 180 days);
-        assertEq(multipliers[0], 10000);
-        assertEq(multipliers[1], 15000);
-        assertEq(multipliers[2], 20000);
     }
 
     // ==================== Pause Tests ====================

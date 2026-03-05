@@ -25,11 +25,12 @@ contract yPUSD_Deployer is Script, yPUSD_Deployer_Base {
     }
 
     function upgrade() external {
+        uint256 deployerPrivateKey = vm.envUint("PRIVATE_KEY");
         address proxyAddr = vm.envAddress("YPUSD");
 
         bytes memory initData = ""; // If you have reinitializer, you can encode it here
 
-        vm.startBroadcast();
+        vm.startBroadcast(deployerPrivateKey);
         address tokenNewAddr = address(_upgrade(proxyAddr, initData));
         vm.stopBroadcast();
 

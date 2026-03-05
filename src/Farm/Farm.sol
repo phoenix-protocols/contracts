@@ -53,10 +53,10 @@ contract FarmUpgradeable is Initializable, AccessControlUpgradeable, ReentrancyG
      * @param _vault Vault contract address
      */
     function initialize(address admin, address _pusdToken, address _ypusdToken, address _vault) public initializer {
-        require(admin != address(0), "Invalid admin");
-        require(_pusdToken != address(0), "Invalid PUSD");
-        require(_ypusdToken != address(0), "Invalid yPUSD");
-        require(_vault != address(0), "Invalid vault");
+        if (admin == address(0)) revert ZeroAddress();
+        if (_pusdToken == address(0)) revert ZeroAddress();
+        if (_ypusdToken == address(0)) revert ZeroAddress();
+        if (_vault == address(0)) revert ZeroAddress();
 
         __AccessControl_init();
         __ReentrancyGuard_init();
@@ -88,12 +88,12 @@ contract FarmUpgradeable is Initializable, AccessControlUpgradeable, ReentrancyG
      * @param amount Deposit amount
      */
     function depositAsset(address asset, uint256 amount) external nonReentrant whenNotPaused {
-        require(vault.isValidAsset(asset), "Bad asset");
+        if (!vault.isValidAsset(asset)) revert BadAsset();
         // Here amount is asset quantity, not USD, need to convert to pusd amount
         (uint256 pusdAmount, ) = vault.getTokenPUSDValue(asset, amount);
-        require(pusdAmount > 0, "Invalid amount");
+        if (pusdAmount == 0) revert InvalidAmount();
 
-        require(pusdAmount >= minDepositAmount, "Amount below min");
+        if (pusdAmount < minDepositAmount) revert TooSmall();
 
         // Calculate fee using effective fee rate (custom or default)
         uint16 effectiveFeeRate = getEffectiveFeeRate(0, msg.sender);
@@ -132,19 +132,19 @@ contract FarmUpgradeable is Initializable, AccessControlUpgradeable, ReentrancyG
      * @param pusdAmount PUSD amount to withdraw
      */
     function withdrawAsset(address asset, uint256 pusdAmount) external nonReentrant whenNotPaused {
-        require(vault.isValidAsset(asset), "Bad asset");
-        require(pusdAmount > 0, "Zero amount");
+        if (!vault.isValidAsset(asset)) revert BadAsset();
+        if (pusdAmount == 0) revert ZeroAmount();
 
         // Check user PUSD balance
-        require(pusdToken.balanceOf(msg.sender) >= pusdAmount, "Low PUSD");
+        if (pusdToken.balanceOf(msg.sender) < pusdAmount) revert LowPUSD();
 
         // Calculate required asset amount for withdrawal (reverse calculation through Oracle)
         (uint256 assetAmount, ) = vault.getPUSDAssetValue(asset, pusdAmount);
-        require(assetAmount > 0, "Invalid amount");
+        if (assetAmount == 0) revert InvalidAmount();
 
         // Check if Vault has sufficient asset balance
         (uint256 vaultBalance, ) = vault.getTVL(asset);
-        require(vaultBalance >= assetAmount, "Low vault");
+        if (vaultBalance < assetAmount) revert LowReserve();
 
         UserAssetInfo storage userInfo = userAssets[msg.sender];
 
@@ -179,40 +179,44 @@ contract FarmUpgradeable is Initializable, AccessControlUpgradeable, ReentrancyG
     /**
      * @notice Stake PUSD to earn mining rewards (DAO pool mode)
      * @dev Each stake recorded independently; rewards accrue ONLY during the lock period (no post-expiry yield)
+     * @param poolId Pool ID to stake into
      * @param amount Amount of PUSD to stake
-     * @param lockPeriod Lock period (5-180 days)
      * @return tokenId Record ID for this stake
      */
-    function stakePUSD(uint256 amount, uint256 lockPeriod) external nonReentrant whenNotPaused returns (uint256 tokenId) {
-        require(amount >= minLockAmount, "Too small");
+    function stakePUSD(uint256 poolId, uint256 amount) external nonReentrant whenNotPaused returns (uint256 tokenId) {
+        if (amount < minLockAmount) revert TooSmall();
 
-        // Verify if lock period is supported
-        require(lockPeriodMultipliers[lockPeriod] > 0, "Invalid period");
+        // Verify pool exists and is enabled
+        Pool storage pool = pools[poolId];
+        if (pool.createdAt == 0) revert PoolNotExists();
+        if (!pool.enabled) revert PoolNotEnabled();
 
-        // Check pool cap if set
-        require(poolCap[lockPeriod] == 0 || poolTVL[lockPeriod] + amount <= poolCap[lockPeriod], "Pool full");
+        // Check pool cap (using pool.used which never decreases)
+        if (pool.cap != 0 && pool.used + amount > pool.cap) revert PoolFull();
 
         // Check max stakes per user
-        require(userAssets[msg.sender].tokenIds.length < maxStakesPerUser, "Max stakes reached");
+        if (userAssets[msg.sender].tokenIds.length >= maxStakesPerUser) revert MaxStakesReached();
 
         // Check user PUSD balance
-        require(pusdToken.balanceOf(msg.sender) >= amount, "Low PUSD");
+        if (pusdToken.balanceOf(msg.sender) < amount) revert LowPUSD();
 
         // Directly transfer PUSD from user address to Vault contract
         IERC20(address(pusdToken)).safeTransferFrom(msg.sender, address(vault), amount);
 
-        // Set reward multiplier based on lock period
-        uint16 multiplier = lockPeriodMultipliers[lockPeriod];
+        // Use pool's reward multiplier
+        uint16 multiplier = pool.rewardMultiplier;
+        if (multiplier == 0) revert BadMultiplier();
 
         // Record stake in NFT Manager contract
         NFTManager nftManager = NFTManager(_nftManager);
-        tokenId = nftManager.mintStakeNFT(msg.sender, amount, uint64(lockPeriod), multiplier, 0);
+        tokenId = nftManager.mintStakeNFT(msg.sender, poolId, amount, uint64(pool.lockPeriod), multiplier, 0);
 
         // Update total staked amount
         totalStaked += amount;
 
-        // Update pool TVL
-        poolTVL[lockPeriod] += amount;
+        // Update pool TVL and used (pool.used never decreases)
+        pool.tvl += amount;
+        pool.used += amount;
 
         // Update user operation time
         UserAssetInfo storage userInfo = userAssets[msg.sender];
@@ -222,28 +226,31 @@ contract FarmUpgradeable is Initializable, AccessControlUpgradeable, ReentrancyG
         userInfo.lastActionTime = block.timestamp;
         userInfo.tokenIds.push(tokenId);
 
-        emit StakeOperation(msg.sender, tokenId, amount, lockPeriod, true);
+        emit StakeOperation(msg.sender, tokenId, amount, pool.lockPeriod, true);
     }
 
     /**
      * @notice Renew stake
-     * @dev After stake unlock, can choose new lock period to continue staking.
+     * @dev After stake unlock, can choose new pool to continue staking.
      *      Rewards are automatically compounded into the stake principal.
      * @param tokenId Stake record ID (NFT tokenId)
-     * @param newLockPeriod New lock period in seconds
+     * @param newPoolId New pool ID
      */
-    function renewStake(uint256 tokenId, uint256 newLockPeriod) external nonReentrant whenNotPaused {
+    function renewStake(uint256 tokenId, uint256 newPoolId) external nonReentrant whenNotPaused {
         NFTManager nftManager = NFTManager(_nftManager);
-        require(nftManager.ownerOf(tokenId) == msg.sender, "Not owner");
+        if (nftManager.ownerOf(tokenId) != msg.sender) revert NotOwner();
         StakeRecord memory stakeRecord = nftManager.getStakeRecord(tokenId);
 
-        require(stakeRecord.active, "Inactive stake");
-        require(block.timestamp >= stakeRecord.startTime + stakeRecord.lockPeriod, "Still locked");
-        // Verify if lock period is supported
-        require(lockPeriodMultipliers[newLockPeriod] > 0, "Invalid period");
+        if (!stakeRecord.active) revert InactiveStake();
+        if (block.timestamp < stakeRecord.startTime + stakeRecord.lockPeriod) revert StillLocked();
+        
+        // Verify new pool exists and is enabled
+        Pool storage newPool = pools[newPoolId];
+        if (newPool.createdAt == 0) revert PoolNotExists();
+        if (!newPool.enabled) revert PoolNotEnabled();
 
         // Call internal function directly to avoid code duplication
-        _executeRenewal(tokenId, newLockPeriod);
+        _executeRenewal(tokenId, newPoolId);
     }
 
     /**
@@ -251,7 +258,7 @@ contract FarmUpgradeable is Initializable, AccessControlUpgradeable, ReentrancyG
      * @dev Core logic extracted from renewStake to avoid code duplication.
      *      Rewards are always compounded into the stake principal.
      */
-    function _executeRenewal(uint256 tokenId, uint256 newLockPeriod) internal {
+    function _executeRenewal(uint256 tokenId, uint256 newPoolId) internal {
         NFTManager nftManager = NFTManager(_nftManager);
         StakeRecord memory stakeRecord = nftManager.getStakeRecord(tokenId);
 
@@ -259,25 +266,24 @@ contract FarmUpgradeable is Initializable, AccessControlUpgradeable, ReentrancyG
         uint256 reward = _calculateStakeReward(stakeRecord);
         uint256 totalReward = reward + stakeRecord.pendingReward;
 
-        // Save old lock period for poolTVL update
-        uint256 oldLockPeriod = stakeRecord.lockPeriod;
+        // Save old pool info
+        uint256 oldPoolId = stakeRecord.poolId;
         uint256 oldAmount = stakeRecord.amount;
 
-        // Check pool cap before renewal
-        if (oldLockPeriod != newLockPeriod) {
-            // Moving to new pool: check if new pool has capacity for full amount (old + rewards)
-            uint256 newAmount = oldAmount + totalReward;
-            require(poolCap[newLockPeriod] == 0 || poolTVL[newLockPeriod] + newAmount <= poolCap[newLockPeriod], "Pool full");
-        } else if (totalReward > 0) {
-            // Same pool: check if current pool has capacity for additional rewards
-            require(poolCap[newLockPeriod] == 0 || poolTVL[newLockPeriod] + totalReward <= poolCap[newLockPeriod], "Pool full");
-        }
+        // Get new pool
+        Pool storage newPool = pools[newPoolId];
 
-        // Reset stake record for new lock period AFTER reward calculation
+        // Check pool cap before renewal (using pool.used which never decreases)
+        // Every renewal consumes quota for the full amount (principal + rewards)
+        uint256 newAmount = oldAmount + totalReward;
+        if (newPool.cap != 0 && newPool.used + newAmount > newPool.cap) revert PoolFull();
+
+        // Reset stake record for new pool AFTER reward calculation
+        stakeRecord.poolId = newPoolId;
         stakeRecord.startTime = block.timestamp;
         stakeRecord.lastClaimTime = block.timestamp;
-        stakeRecord.lockPeriod = newLockPeriod;
-        stakeRecord.rewardMultiplier = lockPeriodMultipliers[newLockPeriod];
+        stakeRecord.lockPeriod = newPool.lockPeriod;
+        stakeRecord.rewardMultiplier = newPool.rewardMultiplier;
         stakeRecord.pendingReward = 0;
 
         // Compound rewards: add to stake principal
@@ -285,27 +291,31 @@ contract FarmUpgradeable is Initializable, AccessControlUpgradeable, ReentrancyG
         if (totalReward > 0) {
             // Transfer reward from reserve to Vault (so withdrawPUSDTo has enough funds)
             bool success = vault.compoundReward(totalReward);
-            require(success, "Low reserve");
+            if (!success) revert LowReserve();
             
             stakeRecord.amount += totalReward;
             totalStaked += totalReward;
         }
 
-        // Update poolTVL
-        if (oldLockPeriod != newLockPeriod) {
+        // Update pool TVL and used
+        // Every renewal consumes quota for the full amount (principal + rewards)
+        if (oldPoolId != newPoolId) {
             // Transfer TVL from old pool to new pool
-            if (poolTVL[oldLockPeriod] >= oldAmount) {
-                poolTVL[oldLockPeriod] -= oldAmount;
+            Pool storage oldPool = pools[oldPoolId];
+            if (oldPool.tvl >= oldAmount) {
+                oldPool.tvl -= oldAmount;
             } else {
-                poolTVL[oldLockPeriod] = 0;
+                oldPool.tvl = 0;
             }
-            poolTVL[newLockPeriod] += stakeRecord.amount;
+            newPool.tvl += stakeRecord.amount;
         } else if (totalReward > 0) {
             // Same pool but amount increased due to compounding
-            poolTVL[newLockPeriod] += totalReward;
+            newPool.tvl += totalReward;
         }
+        // pool.used: always add full amount for every renewal
+        newPool.used += stakeRecord.amount;
 
-        emit StakeRenewal(msg.sender, tokenId, newLockPeriod, totalReward, stakeRecord.amount, true);
+        emit StakeRenewal(msg.sender, tokenId, newPool.lockPeriod, totalReward, stakeRecord.amount, true);
 
         // Update user operation time
         UserAssetInfo storage userInfo = userAssets[msg.sender];
@@ -324,11 +334,11 @@ contract FarmUpgradeable is Initializable, AccessControlUpgradeable, ReentrancyG
      */
     function unstakePUSD(uint256 tokenId) external nonReentrant whenNotPaused {
         NFTManager nftManager = NFTManager(_nftManager);
-        require(nftManager.ownerOf(tokenId) == msg.sender, "Not owner");
+        if (nftManager.ownerOf(tokenId) != msg.sender) revert NotOwner();
 
         StakeRecord memory stakeRecord = nftManager.getStakeRecord(tokenId);
-        require(stakeRecord.active, "Inactive stake");
-        require(block.timestamp >= stakeRecord.startTime + stakeRecord.lockPeriod, "Still locked");
+        if (!stakeRecord.active) revert InactiveStake();
+        if (block.timestamp < stakeRecord.startTime + stakeRecord.lockPeriod) revert StillLocked();
 
         uint256 amount = stakeRecord.amount;
 
@@ -338,7 +348,7 @@ contract FarmUpgradeable is Initializable, AccessControlUpgradeable, ReentrancyG
         if (totalReward > 0) {
             // Distribute PUSD rewards from reserve
             bool success = _distributeReward(msg.sender, totalReward);
-            require(success, "Low reserve");
+            if (!success) revert LowReserve();
             emit StakeRewardsClaimed(msg.sender, tokenId, totalReward);
         }
 
@@ -352,11 +362,12 @@ contract FarmUpgradeable is Initializable, AccessControlUpgradeable, ReentrancyG
         } else {
             totalStaked = 0;
         }
-        // Update pool TVL
-        if (poolTVL[stakeRecord.lockPeriod] >= amount) {
-            poolTVL[stakeRecord.lockPeriod] -= amount;
+        // Update pool TVL (pool.used is NOT decreased - it never decreases)
+        Pool storage pool = pools[stakeRecord.poolId];
+        if (pool.tvl >= amount) {
+            pool.tvl -= amount;
         } else {
-            poolTVL[stakeRecord.lockPeriod] = 0;
+            pool.tvl = 0;
         }
 
         // Withdraw staked PUSD from Vault to user
@@ -386,10 +397,10 @@ contract FarmUpgradeable is Initializable, AccessControlUpgradeable, ReentrancyG
      *        0 - total rewards for all stakes
      *        1 - specific stake rewards (tokenId = stake ID)
      *        2 - PUSD allowance amount
-     *        3 - canStake validation (tokenId = lockPeriod, amount = stake amount)
-     *        4 - canRenewStake validation (tokenId = stake ID, amount = newLockPeriod)
-     * @param tokenId Stake record ID (queryType 1,4) or lockPeriod (queryType 3)
-     * @param amount Stake amount (queryType 3) or newLockPeriod (queryType 4)
+     *        3 - canStake validation (tokenId = poolId, amount = stake amount)
+     *        4 - canRenewStake validation (tokenId = stake ID, amount = newPoolId)
+     * @param tokenId Stake record ID (queryType 1,4) or poolId (queryType 3)
+     * @param amount Stake amount (queryType 3) or newPoolId (queryType 4)
      * @return result Query result:
      *         queryType 0,1: reward amount
      *         queryType 2: allowance amount
@@ -401,7 +412,7 @@ contract FarmUpgradeable is Initializable, AccessControlUpgradeable, ReentrancyG
         if (queryType == 0) {
             // Get total rewards
             uint256[] memory tokenIds = userAssets[account].tokenIds;
-            require(tokenIds.length > 0, "No stakes");
+            if (tokenIds.length == 0) revert NoStakes();
             StakeRecord[] memory stakes = new StakeRecord[](tokenIds.length);
             for (uint256 i = 0; i < tokenIds.length; i++) {
                 StakeRecord memory record = NFTManager(_nftManager).getStakeRecord(tokenIds[i]);
@@ -423,21 +434,25 @@ contract FarmUpgradeable is Initializable, AccessControlUpgradeable, ReentrancyG
             // Get allowance amount
             return (IERC20(address(pusdToken)).allowance(account, address(this)), "");
         } else if (queryType == 3) {
-            // canStake validation (tokenId parameter is used as lockPeriod)
-            uint256 lockPeriod = tokenId;
+            // canStake validation (tokenId parameter is used as poolId)
+            uint256 poolId = tokenId;
             
             // Check minimum amount
             if (amount < minLockAmount) {
                 return (0, "Below min amount");
             }
             
-            // Check if lock period is supported
-            if (lockPeriodMultipliers[lockPeriod] == 0) {
-                return (0, "Invalid period");
+            // Check if pool exists and is enabled
+            Pool storage pool = pools[poolId];
+            if (pool.createdAt == 0) {
+                return (0, "Pool not exists");
+            }
+            if (!pool.enabled) {
+                return (0, "Pool not enabled");
             }
             
-            // Check pool cap
-            if (poolCap[lockPeriod] > 0 && poolTVL[lockPeriod] + amount > poolCap[lockPeriod]) {
+            // Check pool cap (using pool.used which never decreases)
+            if (pool.cap > 0 && pool.used + amount > pool.cap) {
                 return (0, "Pool full");
             }
             
@@ -458,8 +473,8 @@ contract FarmUpgradeable is Initializable, AccessControlUpgradeable, ReentrancyG
             
             return (1, "");
         } else if (queryType == 4) {
-            // canRenewStake validation (tokenId parameter is tokenId, amount parameter is newLockPeriod)
-            uint256 newLockPeriod = amount;
+            // canRenewStake validation (tokenId parameter is tokenId, amount parameter is newPoolId)
+            uint256 newPoolId = amount;
             NFTManager nftManager = NFTManager(_nftManager);
             
             // Check if tokenId exists
@@ -481,9 +496,13 @@ contract FarmUpgradeable is Initializable, AccessControlUpgradeable, ReentrancyG
                 return (0, "Still locked");
             }
             
-            // Check if new lock period is supported
-            if (lockPeriodMultipliers[newLockPeriod] == 0) {
-                return (0, "Invalid period");
+            // Check if new pool exists and is enabled
+            Pool storage newPool = pools[newPoolId];
+            if (newPool.createdAt == 0) {
+                return (0, "Pool not exists");
+            }
+            if (!newPool.enabled) {
+                return (0, "Pool not enabled");
             }
             
             // Calculate estimated rewards for compounding
@@ -491,18 +510,10 @@ contract FarmUpgradeable is Initializable, AccessControlUpgradeable, ReentrancyG
             uint256 totalReward = reward + stakeRecord.pendingReward;
             uint256 estimatedNewAmount = stakeRecord.amount + totalReward;
             
-            // Check pool cap
-            uint256 oldLockPeriod = stakeRecord.lockPeriod;
-            if (oldLockPeriod != newLockPeriod) {
-                // Moving to new pool: check if new pool has capacity
-                if (poolCap[newLockPeriod] > 0 && poolTVL[newLockPeriod] + estimatedNewAmount > poolCap[newLockPeriod]) {
-                    return (0, "Pool full");
-                }
-            } else if (totalReward > 0) {
-                // Same pool: check if pool has capacity for additional rewards
-                if (poolCap[newLockPeriod] > 0 && poolTVL[newLockPeriod] + totalReward > poolCap[newLockPeriod]) {
-                    return (0, "Pool full");
-                }
+            // Check pool cap (using pool.used which never decreases)
+            // Every renewal consumes quota for the full amount
+            if (newPool.cap > 0 && newPool.used + estimatedNewAmount > newPool.cap) {
+                return (0, "Pool full");
             }
             
             // Check if vault has enough reserve for compounding
@@ -526,8 +537,8 @@ contract FarmUpgradeable is Initializable, AccessControlUpgradeable, ReentrancyG
      * @param newAPY New annual percentage yield (basis points, 1500 = 15%)
      */
     function setAPY(uint256 newAPY) external onlyRole(OPERATOR_ROLE) {
-        require(newAPY <= type(uint16).max, "APY overflow");
-        require(newAPY != currentAPY, "APY unchanged");
+        if (newAPY > type(uint16).max) revert InvalidAmount();
+        if (newAPY == currentAPY) revert AlreadyActioned();
 
         uint16 oldAPY = currentAPY;
         currentAPY = uint16(newAPY);
@@ -658,20 +669,100 @@ contract FarmUpgradeable is Initializable, AccessControlUpgradeable, ReentrancyG
         return (amount * secondRate * duration) / precision;
     }
 
-    /* ========== Query Functions ========== */
+    /* ========== Pool Management Functions ========== */
 
     /**
-     * @notice Get all supported lock periods with their multipliers
-     * @return lockPeriods Array of supported lock periods (in seconds)
-     * @return multipliers Array of corresponding multipliers (basis points)
+     * @notice Create a new staking pool
+     * @param name Pool name (e.g., "2026Q1-30D")
+     * @param lockPeriod Lock period in seconds
+     * @param cap Maximum capacity (0 = unlimited)
+     * @param multiplier Reward multiplier (basis points, 10000 = 1.0x, 15000 = 1.5x)
+     * @return poolId The newly created pool ID
      */
-    function getSupportedLockPeriodsWithMultipliers() external view returns (uint256[] memory lockPeriods, uint16[] memory multipliers) {
-        lockPeriods = supportedLockPeriods;
-        multipliers = new uint16[](lockPeriods.length);
+    function createPool(string calldata name, uint256 lockPeriod, uint256 cap, uint16 multiplier) external onlyRole(OPERATOR_ROLE) returns (uint256 poolId) {
+        if (lockPeriod == 0) revert InvalidPeriod();
+        if (multiplier < 5000) revert BadMultiplier(); // At least 0.5x
+        if (bytes(name).length == 0) revert EmptyName();
+        
+        // Check name uniqueness
+        bytes32 nameHash = keccak256(bytes(name));
+        if (poolNameExists[nameHash]) revert NameExists();
+        poolNameExists[nameHash] = true;
 
-        for (uint256 i = 0; i < lockPeriods.length; i++) {
-            multipliers[i] = lockPeriodMultipliers[lockPeriods[i]];
+        poolId = nextPoolId++;
+        pools[poolId] = Pool({
+            name: name,
+            lockPeriod: lockPeriod,
+            cap: cap,
+            used: 0,
+            tvl: 0,
+            rewardMultiplier: multiplier,
+            enabled: true,
+            createdAt: block.timestamp
+        });
+
+        emit PoolCreated(poolId, name, lockPeriod, cap);
+    }
+
+    /**
+     * @notice Update pool configuration
+     * @param poolId Pool ID
+     * @param fieldType Field to update: 0=enabled, 1=cap, 2=multiplier
+     * @param value New value (for enabled: 0=false, 1=true)
+     */
+    function updatePool(uint256 poolId, uint8 fieldType, uint256 value) external onlyRole(OPERATOR_ROLE) {
+        if (pools[poolId].createdAt == 0) revert PoolNotExists();
+        
+        if (fieldType == 0) {
+            // enabled
+            bool enabled = value != 0;
+            pools[poolId].enabled = enabled;
+            emit PoolEnabledChanged(poolId, enabled);
+        } else if (fieldType == 1) {
+            // cap
+            uint256 oldCap = pools[poolId].cap;
+            pools[poolId].cap = value;
+            emit PoolCapUpdated(poolId, oldCap, value);
+        } else if (fieldType == 2) {
+            // multiplier
+            if (value < 5000) revert BadMultiplier(); // At least 0.5x
+            pools[poolId].rewardMultiplier = uint16(value);
+        } else {
+            revert InvalidConfig();
         }
+    }
+
+    /**
+     * @notice Set pool name
+     * @param poolId Pool ID
+     * @param newName New pool name
+     */
+    function setPoolName(uint256 poolId, string calldata newName) external onlyRole(OPERATOR_ROLE) {
+        if (pools[poolId].createdAt == 0) revert PoolNotExists();
+        if (bytes(newName).length == 0) revert EmptyName();
+        
+        // Check name uniqueness
+        bytes32 oldHash = keccak256(bytes(pools[poolId].name));
+        bytes32 newHash = keccak256(bytes(newName));
+        if (poolNameExists[newHash]) revert NameExists();
+        
+        // Update name registry
+        poolNameExists[oldHash] = false;
+        poolNameExists[newHash] = true;
+        
+        string memory oldName = pools[poolId].name;
+        pools[poolId].name = newName;
+        emit PoolNameUpdated(poolId, oldName, newName);
+    }
+
+    /**
+     * @notice Get pool information by ID
+     * @param poolId Pool ID
+     * @return Pool struct
+     */
+    function getPool(uint256 poolId) external view returns (Pool memory) {
+        if (pools[poolId].createdAt == 0) revert PoolNotExists();
+        return pools[poolId];
     }
 
     /**
@@ -727,9 +818,9 @@ contract FarmUpgradeable is Initializable, AccessControlUpgradeable, ReentrancyG
      */
     function getStakeDetails(address user, uint256 tokenId) external view returns (StakeRecord memory stakeRecord, uint256 totalReward, uint256 unlockTime, bool isUnlocked, uint256 remainingTime) {
         NFTManager nftManager = NFTManager(_nftManager);
-        require(nftManager.ownerOf(tokenId) == user, "Not owner");
+        if (nftManager.ownerOf(tokenId) != user) revert NotOwner();
         stakeRecord = nftManager.getStakeRecord(tokenId);
-        require(stakeRecord.active, "Inactive stake");
+        if (!stakeRecord.active) revert InactiveStake();
 
         // Total unclaimed rewards = calculated current reward + stored pending reward
         totalReward = _calculateStakeReward(stakeRecord) + stakeRecord.pendingReward;
@@ -795,6 +886,8 @@ contract FarmUpgradeable is Initializable, AccessControlUpgradeable, ReentrancyG
 
             stakeDetails[i] = StakeDetail({
                 tokenId: tokenIds[stakeIndex],
+                poolId: record.poolId,
+                poolName: pools[record.poolId].name,
                 amount: record.amount,
                 startTime: record.startTime,
                 lockPeriod: record.lockPeriod,
@@ -852,10 +945,10 @@ contract FarmUpgradeable is Initializable, AccessControlUpgradeable, ReentrancyG
      * @param tokenId The transferred token ID
      */
     function onNFTTransfer(address from, address to, uint256 tokenId) external {
-        require(msg.sender == _nftManager, "Only NFTManager");
+        if (msg.sender != _nftManager) revert OnlyNFTManager();
         
         // Check max stakes limit for receiver
-        require(userAssets[to].tokenIds.length < maxStakesPerUser, "Max stakes reached");
+        if (userAssets[to].tokenIds.length >= maxStakesPerUser) revert MaxStakesReached();
         
         // Remove tokenId from sender's array
         _removeTokenIdFromUser(from, tokenId);
@@ -873,60 +966,6 @@ contract FarmUpgradeable is Initializable, AccessControlUpgradeable, ReentrancyG
         emit StakeNFTTransferred(from, to, tokenId);
     }
 
-    /* ========== Multiplier Configuration Management ========== */
-    /**
-     * @notice Batch set lock period configuration (multipliers and pool caps)
-     * @dev Multiplier is in basis points (10000 = 1.00x, 15000 = 1.50x, 50000 = 5.00x)
-     *      The actual effective APY = base APY × (multiplier / 10000)
-     *      For example: base APY 20% (2000 bps), multiplier 15000 (1.5x) → effective APY = 30%
-     * @param lockPeriods Array of lock periods (in seconds)
-     * @param multipliers Array of corresponding multipliers (basis points, range: 5000-50000, i.e., 0.5x-5.0x)
-     * @param caps Array of pool caps (0 = no limit)
-     */
-    function batchSetLockPeriodConfig(uint256[] calldata lockPeriods, uint16[] calldata multipliers, uint256[] calldata caps) external onlyRole(OPERATOR_ROLE) {
-        require(lockPeriods.length == multipliers.length && lockPeriods.length == caps.length, "Length mismatch");
-        require(lockPeriods.length > 0, "Empty arrays");
-
-        for (uint256 i = 0; i < lockPeriods.length; i++) {
-            require(lockPeriods[i] > 0, "Invalid period");
-            require(multipliers[i] >= 5000, "Bad multiplier");
-
-            uint16 oldMultiplier = lockPeriodMultipliers[lockPeriods[i]];
-
-            if (oldMultiplier == 0) {
-                supportedLockPeriods.push(lockPeriods[i]);
-                emit LockPeriodAdded(lockPeriods[i], multipliers[i]);
-            } else {
-                emit MultiplierUpdated(lockPeriods[i], oldMultiplier, multipliers[i]);
-            }
-
-            lockPeriodMultipliers[lockPeriods[i]] = multipliers[i];
-            poolCap[lockPeriods[i]] = caps[i];
-            emit PoolCapUpdated(lockPeriods[i], caps[i]);
-        }
-    }
-
-    /**
-     * @notice Remove lock period configuration
-     * @param lockPeriod Lock period to remove
-     */
-    function removeLockPeriod(uint256 lockPeriod) external onlyRole(OPERATOR_ROLE) {
-        require(lockPeriodMultipliers[lockPeriod] > 0, "Period not found");
-
-        // Remove from array
-        for (uint256 i = 0; i < supportedLockPeriods.length; i++) {
-            if (supportedLockPeriods[i] == lockPeriod) {
-                // Move last element to current position, then delete last element
-                supportedLockPeriods[i] = supportedLockPeriods[supportedLockPeriods.length - 1];
-                supportedLockPeriods.pop();
-                break;
-            }
-        }
-
-        delete lockPeriodMultipliers[lockPeriod];
-        emit LockPeriodRemoved(lockPeriod);
-    }
-
     /* ========== PUSD Bridge Functions ========== */
 
     /**
@@ -939,14 +978,14 @@ contract FarmUpgradeable is Initializable, AccessControlUpgradeable, ReentrancyG
      * @return success Whether initiation succeeded
      */
     function bridgeInitiatePUSD(uint256 sourceChainId, uint256 destChainId, address to, uint256 value) external nonReentrant whenNotPaused returns (bool success) {
-        require(sourceChainId == block.chainid, "Invalid chain");
-        require(bridgeMessenger != address(0), "Bridge messenger not set");
-        require(to != address(0), "Bad recipient");
-        require(value > 0, "Zero amount");
+        if (sourceChainId != block.chainid) revert InvalidChain();
+        if (bridgeMessenger == address(0)) revert ZeroAddress();
+        if (to == address(0)) revert BadRecipient();
+        if (value == 0) revert ZeroAmount();
 
         // Check user PUSD balance
-        require(pusdToken.balanceOf(msg.sender) >= value, "Low PUSD");
-        require(isSupportedBridgeChain[destChainId], "Destination chain not supported");
+        if (pusdToken.balanceOf(msg.sender) < value) revert LowPUSD();
+        if (!isSupportedBridgeChain[destChainId]) revert InvalidChain();
 
         // Calculate bridge fee using effective fee rate (custom or default)
         uint16 effectiveFeeRate = getEffectiveFeeRate(2, msg.sender);
@@ -981,10 +1020,10 @@ contract FarmUpgradeable is Initializable, AccessControlUpgradeable, ReentrancyG
      */
     function bridgeFinalizedPUSD(uint256 sourceChainId, uint256 destChainId, address from, address to, uint256 amount, uint256 _fee, uint256 _nonce) external nonReentrant whenNotPaused onlyRole(BRIDGE_ROLE) returns (bool success) {
         // Verify destination chain ID matches current chain
-        require(destChainId == block.chainid, "Invalid chain");
-        require(isSupportedBridgeChain[sourceChainId], "Bad chain");
-        require(to != address(0), "Bad recipient");
-        require(amount > 0, "Zero amount");
+        if (destChainId != block.chainid) revert InvalidChain();
+        if (!isSupportedBridgeChain[sourceChainId]) revert InvalidChain();
+        if (to == address(0)) revert BadRecipient();
+        if (amount == 0) revert ZeroAmount();
 
         // Mint PUSD to recipient
         pusdToken.mint(to, amount);
@@ -1008,14 +1047,14 @@ contract FarmUpgradeable is Initializable, AccessControlUpgradeable, ReentrancyG
      * @param messenger MessageManager contract address on current chain
      */
     function setBridgeMessenger(address messenger) external onlyRole(OPERATOR_ROLE) {
-        require(messenger != address(0), "Bad messenger");
+        if (messenger == address(0)) revert ZeroAddress();
         address oldMessenger = bridgeMessenger;
         bridgeMessenger = messenger;
         emit BridgeMessengerUpdated(oldMessenger, messenger);
     }
 
     function setSupportedBridgeChain(uint256[] memory chainId, bool[] memory isSupported) external onlyRole(OPERATOR_ROLE) {
-        require(chainId.length == isSupported.length, "Length mismatch");
+        if (chainId.length != isSupported.length) revert LengthMismatch();
         for (uint256 i = 0; i < chainId.length; i++) {
             isSupportedBridgeChain[chainId[i]] = isSupported[i];
         }
@@ -1031,43 +1070,23 @@ contract FarmUpgradeable is Initializable, AccessControlUpgradeable, ReentrancyG
      */
     function updateSystemConfig(uint256 configType, uint256 newValue) external onlyRole(OPERATOR_ROLE) {
         if (configType == 0) {
-            require(
-                // pusd has 6 decimals
-                newValue >= 0 && newValue <= 1000 * 10 ** 6,
-                "Invalid min deposit amount"
-            );
+            if (newValue > 1000 * 10 ** 6) revert InvalidConfig();
             minDepositAmount = newValue;
         } else if (configType == 1) {
-            require(
-                // pusd has 6 decimals
-                newValue >= 0 && newValue <= 10000 * 10 ** 6,
-                "Invalid min lock amount"
-            );
+            if (newValue > 10000 * 10 ** 6) revert InvalidConfig();
             minLockAmount = newValue;
         } else if (configType == 2) {
-            require(newValue >= 10 && newValue <= 65535, "Invalid max stakes per user");
+            if (newValue < 10 || newValue > 65535) revert InvalidConfig();
             maxStakesPerUser = uint16(newValue);
         } else if (configType == 3) {
-            require(newValue >= 50 && newValue <= 65535, "Invalid max APY history");
+            if (newValue < 50 || newValue > 65535) revert InvalidConfig();
             maxAPYHistory = uint16(newValue);
         } else {
-            revert("Bad config");
+            revert InvalidConfig();
         }
     }
 
     /* ========== Admin Functions ========== */
-
-    /**
-     * @notice Set custom fee rate for specific user
-     * @param feeType Fee type: 0=deposit, 1=withdraw, 2=bridge
-     * @param user User address
-     * @param feeRate Custom fee rate (0 = use default, 1-10000 = custom rate in basis points)
-     */
-    function setCustomFeeRate(uint8 feeType, address user, uint16 feeRate) external onlyRole(OPERATOR_ROLE) {
-        require(feeType <= 2, "Invalid fee type");
-        require(feeRate <= 10000, "Fee too high");
-        customFeeRates[feeType][user] = feeRate;
-    }
 
     /**
      * @notice Batch set custom fee rates for multiple users
@@ -1076,12 +1095,12 @@ contract FarmUpgradeable is Initializable, AccessControlUpgradeable, ReentrancyG
      * @param feeRates Array of custom fee rates (0 = use default)
      */
     function batchSetCustomFeeRate(uint8 feeType, address[] calldata users, uint16[] calldata feeRates) external onlyRole(OPERATOR_ROLE) {
-        require(feeType <= 2, "Invalid fee type");
-        require(users.length == feeRates.length, "Length mismatch");
-        require(users.length > 0, "Empty arrays");
+        if (feeType > 2) revert InvalidFeeType();
+        if (users.length != feeRates.length) revert LengthMismatch();
+        if (users.length == 0) revert EmptyArrays();
         
         for (uint256 i = 0; i < users.length; i++) {
-            require(feeRates[i] <= 10000, "Fee too high");
+            if (feeRates[i] > 10000) revert FeeTooHigh();
             customFeeRates[feeType][users[i]] = feeRates[i];
         }
     }
@@ -1109,9 +1128,9 @@ contract FarmUpgradeable is Initializable, AccessControlUpgradeable, ReentrancyG
      * @param _bridgeFeeRate Bridge fee rate (basis points, 100 = 1%)
      */
     function setFeeRates(uint256 _depositFeeRate, uint256 _withdrawFeeRate, uint256 _bridgeFeeRate) external onlyRole(OPERATOR_ROLE) {
-        require(_depositFeeRate <= type(uint16).max, "Fee overflow");
-        require(_withdrawFeeRate <= type(uint16).max, "Fee overflow");
-        require(_bridgeFeeRate <= type(uint16).max, "Fee overflow");
+        if (_depositFeeRate > type(uint16).max) revert FeeOverflow();
+        if (_withdrawFeeRate > type(uint16).max) revert FeeOverflow();
+        if (_bridgeFeeRate > type(uint16).max) revert FeeOverflow();
 
         depositFeeRate = uint16(_depositFeeRate);
         withdrawFeeRate = uint16(_withdrawFeeRate);
@@ -1121,7 +1140,7 @@ contract FarmUpgradeable is Initializable, AccessControlUpgradeable, ReentrancyG
     }
 
     function setNFTManager(address nftManager_) external onlyRole(OPERATOR_ROLE) {
-        require(nftManager_ != address(0), "Invalid NFT mgr");
+        if (nftManager_ == address(0)) revert ZeroAddress();
         _nftManager = nftManager_;
         emit NFTManagerUpdated(nftManager_);
     }
