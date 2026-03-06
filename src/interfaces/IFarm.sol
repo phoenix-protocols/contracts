@@ -158,7 +158,6 @@ interface IFarm {
     function createPool(string calldata name, uint256 lockPeriod, uint256 cap, uint16 multiplier) external returns (uint256 poolId);
     function updatePool(uint256 poolId, uint8 fieldType, uint256 value) external;
     function setPoolName(uint256 poolId, string calldata newName) external;
-    function getPool(uint256 poolId) external view returns (Pool memory);
 
     function updateSystemConfig(uint256 configType, uint256 newValue) external;
 

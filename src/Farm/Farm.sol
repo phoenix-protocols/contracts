@@ -756,16 +756,6 @@ contract FarmUpgradeable is Initializable, AccessControlUpgradeable, ReentrancyG
     }
 
     /**
-     * @notice Get pool information by ID
-     * @param poolId Pool ID
-     * @return Pool struct
-     */
-    function getPool(uint256 poolId) external view returns (Pool memory) {
-        if (pools[poolId].createdAt == 0) revert PoolNotExists();
-        return pools[poolId];
-    }
-
-    /**
      * @notice Get complete user information (DAO pool mode)
      * @param user User address
      * @return pusdBalance User PUSD balance
