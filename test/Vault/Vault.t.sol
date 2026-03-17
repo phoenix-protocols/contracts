@@ -241,24 +241,7 @@ contract VaultTest is Test, Vault_Deployer_Base {
         assertEq(usdt.balanceOf(user), 1_000_000e6 - amount + amount);
     }
 
-    function test_WithdrawPUSDTo_OnlyFarm() public {
-        uint256 amount = 100e6;
-
-        vm.prank(user);
-        vm.expectRevert("Vault: Caller is not the farm");
-        vault.withdrawPUSDTo(user, amount);
-
-        vm.warp(block.timestamp + vault.HEALTH_CHECK_TIMEOUT() + 1);
-        vm.prank(farm);
-        vm.expectRevert("Vault: Oracle system offline");
-        vault.withdrawPUSDTo(user, amount);
-
-        vm.warp(block.timestamp - 100);
-        vm.prank(farm);
-        vault.withdrawPUSDTo(user, amount);
-
-        assertEq(pusd.balanceOf(user), amount);
-    }
+    // NOTE: withdrawPUSDTo moved to StakingVault - see StakingVault.t.sol
 
     // ---------- addFee / claimFees ----------
 
@@ -733,116 +716,8 @@ contract VaultTest is Test, Vault_Deployer_Base {
         vault.upgradeToAndCall(address(implV2), "");
     }
 
-    // ========== REWARD RESERVE TESTS ==========
-
-    function test_AddRewardReserve_Success() public {
-        uint256 amount = 1000 * 1e6;
-        
-        // Mint PUSD to admin
-        pusd.mint(admin, amount);
-        
-        // Approve and add
-        vm.startPrank(admin);
-        pusd.approve(address(vault), amount);
-        vault.addRewardReserve(amount);
-        vm.stopPrank();
-        
-        assertEq(vault.getRewardReserve(), amount);
-    }
-
-    function test_AddRewardReserve_OnlyAdmin() public {
-        vm.prank(user);
-        vm.expectRevert();
-        vault.addRewardReserve(100);
-    }
-
-    function test_AddRewardReserve_RevertZeroAmount() public {
-        vm.prank(admin);
-        vm.expectRevert("Vault: Amount must be > 0");
-        vault.addRewardReserve(0);
-    }
-
-    function test_WithdrawRewardReserve_Success() public {
-        uint256 amount = 1000 * 1e6;
-        
-        // First add rewards
-        pusd.mint(admin, amount);
-        
-        vm.startPrank(admin);
-        pusd.approve(address(vault), amount);
-        vault.addRewardReserve(amount);
-        
-        // Now withdraw
-        uint256 balBefore = pusd.balanceOf(admin);
-        vault.withdrawRewardReserve(admin, amount);
-        vm.stopPrank();
-        
-        assertEq(vault.getRewardReserve(), 0);
-        assertEq(pusd.balanceOf(admin) - balBefore, amount);
-    }
-
-    function test_WithdrawRewardReserve_OnlyAdmin() public {
-        vm.prank(user);
-        vm.expectRevert();
-        vault.withdrawRewardReserve(user, 100);
-    }
-
-    function test_WithdrawRewardReserve_RevertInvalidRecipient() public {
-        vm.prank(admin);
-        vm.expectRevert("Vault: Invalid recipient");
-        vault.withdrawRewardReserve(address(0), 100);
-    }
-
-    function test_WithdrawRewardReserve_RevertInvalidAmount() public {
-        // Zero amount
-        vm.prank(admin);
-        vm.expectRevert("Vault: Invalid amount");
-        vault.withdrawRewardReserve(admin, 0);
-        
-        // Amount exceeds reserve
-        vm.prank(admin);
-        vm.expectRevert("Vault: Invalid amount");
-        vault.withdrawRewardReserve(admin, 100);
-    }
-
-    function test_DistributeReward_OnlyFarm() public {
-        vm.prank(user);
-        vm.expectRevert("Vault: Caller is not the farm");
-        vault.distributeReward(user, 100);
-    }
-
-    function test_DistributeReward_Success() public {
-        uint256 amount = 1000 * 1e6;
-        
-        // Add rewards first
-        pusd.mint(admin, amount);
-        
-        vm.startPrank(admin);
-        pusd.approve(address(vault), amount);
-        vault.addRewardReserve(amount);
-        vm.stopPrank();
-        
-        // Farm distributes reward
-        uint256 balBefore = pusd.balanceOf(user);
-        vm.prank(farm);
-        bool success = vault.distributeReward(user, 500 * 1e6);
-        
-        assertTrue(success);
-        assertEq(pusd.balanceOf(user) - balBefore, 500 * 1e6);
-        assertEq(vault.getRewardReserve(), 500 * 1e6);
-    }
-
-    function test_DistributeReward_ZeroAmount() public {
-        vm.prank(farm);
-        bool success = vault.distributeReward(user, 0);
-        assertTrue(success); // Zero amount returns true immediately
-    }
-
-    function test_DistributeReward_InsufficientReserve() public {
-        // No reserve, try to distribute
-        vm.prank(farm);
-        bool success = vault.distributeReward(user, 100);
-        
-        assertFalse(success); // Should return false, not revert
-    }
+    // NOTE: Reward reserve tests moved to StakingVault.t.sol
+    // - test_AddRewardReserve_*
+    // - test_WithdrawRewardReserve_*
+    // - test_DistributeReward_*
 }

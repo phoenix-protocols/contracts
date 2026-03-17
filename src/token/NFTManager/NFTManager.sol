@@ -42,6 +42,11 @@ contract NFTManager is Initializable, ERC721BurnableUpgradeable, ERC721Enumerabl
         _;
     }
 
+    modifier notFrozen(uint256 tokenId) {
+        require(!frozen[tokenId], "NFTManager: token is frozen");
+        _;
+    }
+
     // ---------- Initializer ----------
     /// @notice Used instead of constructor when deploying behind UUPS proxy
     /// @dev farm_ can be address(0) initially and set later via setFarm()
@@ -237,6 +242,29 @@ contract NFTManager is Initializable, ERC721BurnableUpgradeable, ERC721Enumerabl
         return _tokenIdTracker;
     }
 
+    // ---------- Freeze/Unfreeze ----------
+    /**
+     * @notice Freeze a token to prevent transfers
+     * @param tokenId Token ID to freeze
+     */
+    function freezeToken(uint256 tokenId) external onlyAdmin {
+        _requireOwned(tokenId);
+        require(!frozen[tokenId], "NFTManager: already frozen");
+        frozen[tokenId] = true;
+        emit TokenFrozen(tokenId, true);
+    }
+
+    /**
+     * @notice Unfreeze a token to allow transfers
+     * @param tokenId Token ID to unfreeze
+     */
+    function unfreezeToken(uint256 tokenId) external onlyAdmin {
+        _requireOwned(tokenId);
+        require(frozen[tokenId], "NFTManager: not frozen");
+        frozen[tokenId] = false;
+        emit TokenFrozen(tokenId, false);
+    }
+
     // ---------- UUPS Upgrade Permission ----------
     function _authorizeUpgrade(address newImplementation) internal override onlyRole(DEFAULT_ADMIN_ROLE) {}
 
@@ -248,6 +276,12 @@ contract NFTManager is Initializable, ERC721BurnableUpgradeable, ERC721Enumerabl
     /// @dev Override required by ERC721Enumerable
     /// @notice Also notifies Farm contract when NFT is transferred to sync tokenIds arrays
     function _update(address to, uint256 tokenId, address auth) internal override(ERC721Upgradeable, ERC721EnumerableUpgradeable) returns (address) {
+        // Check frozen status (allow minting and burning)
+        address currentOwner = _ownerOf(tokenId);
+        if (currentOwner != address(0) && to != address(0)) {
+            require(!frozen[tokenId], "NFTManager: token is frozen");
+        }
+        
         // super._update returns the previous owner (before transfer)
         address from = super._update(to, tokenId, auth);
         

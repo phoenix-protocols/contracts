@@ -16,7 +16,9 @@ contract VaultV2 is Vault {
 
 abstract contract Vault_Deployer_Base {
     function _deploy(address admin_, address pusdToken_, address nftManager_, bytes32 salt) internal returns (Vault vault) {
-        Vault impl = new Vault();
+        // Use CREATE2 for impl to ensure same address across all chains
+        bytes32 implSalt = keccak256(abi.encodePacked(salt, "VAULT_IMPL"));
+        Vault impl = new Vault{salt: implSalt}();
 
         bytes memory initData = abi.encodeCall(
             Vault.initialize,
@@ -33,8 +35,10 @@ abstract contract Vault_Deployer_Base {
     }
 
     // UUPS
-    function _upgrade(address proxyAddr, bytes memory initData) internal returns (VaultV2 vaultV2) {
-        VaultV2 implV2 = new VaultV2();
+    function _upgrade(address proxyAddr, bytes memory initData, bytes32 salt) internal returns (VaultV2 vaultV2) {
+        // Use CREATE2 for impl to ensure same address across all chains
+        bytes32 implSalt = keccak256(abi.encodePacked(salt, "VAULT_V2_IMPL"));
+        VaultV2 implV2 = new VaultV2{salt: implSalt}();
 
         Vault proxy = Vault(proxyAddr);
 

@@ -12,6 +12,7 @@ import "@openzeppelin/contracts/token/ERC721/IERC721.sol";
 import "../interfaces/IPUSD.sol";
 import "../interfaces/IyPUSD.sol";
 import "../interfaces/IVault.sol";
+import "../interfaces/IStakingVault.sol";
 import "../interfaces/IMessageManager.sol";
 import {IFarm} from "../interfaces/IFarm.sol";
 import {FarmStorage} from "./FarmStorage.sol";
@@ -200,8 +201,8 @@ contract FarmUpgradeable is Initializable, AccessControlUpgradeable, ReentrancyG
         // Check user PUSD balance
         if (pusdToken.balanceOf(msg.sender) < amount) revert LowPUSD();
 
-        // Directly transfer PUSD from user address to Vault contract
-        IERC20(address(pusdToken)).safeTransferFrom(msg.sender, address(vault), amount);
+        // Transfer PUSD from user to StakingVault (isolated from Treasury)
+        stakingVault.depositStake(msg.sender, amount);
 
         // Use pool's reward multiplier
         uint16 multiplier = pool.rewardMultiplier;
@@ -287,10 +288,10 @@ contract FarmUpgradeable is Initializable, AccessControlUpgradeable, ReentrancyG
         stakeRecord.pendingReward = 0;
 
         // Compound rewards: add to stake principal
-        // CRITICAL: Must transfer rewards from reserve to Vault to back the increased stake
+        // CRITICAL: Move rewards from reserve to staked principal in StakingVault
         if (totalReward > 0) {
-            // Transfer reward from reserve to Vault (so withdrawPUSDTo has enough funds)
-            bool success = vault.compoundReward(totalReward);
+            // Compound reward (moves from rewardReserve to totalStaked in StakingVault)
+            bool success = stakingVault.compoundReward(totalReward);
             if (!success) revert LowReserve();
             
             stakeRecord.amount += totalReward;
@@ -370,8 +371,8 @@ contract FarmUpgradeable is Initializable, AccessControlUpgradeable, ReentrancyG
             pool.tvl = 0;
         }
 
-        // Withdraw staked PUSD from Vault to user
-        vault.withdrawPUSDTo(msg.sender, amount);
+        // Withdraw staked PUSD from StakingVault to user
+        stakingVault.withdrawStake(msg.sender, amount);
 
         nftManager.updateStakeRecord(tokenId, stakeRecord);
         // Burn stake NFT
@@ -516,9 +517,9 @@ contract FarmUpgradeable is Initializable, AccessControlUpgradeable, ReentrancyG
                 return (0, "Pool full");
             }
             
-            // Check if vault has enough reserve for compounding
+            // Check if stakingVault has enough reserve for compounding
             if (totalReward > 0) {
-                uint256 reserveBalance = vault.getRewardReserve();
+                uint256 reserveBalance = stakingVault.getRewardReserve();
                 if (reserveBalance < totalReward) {
                     return (0, "Low reserve");
                 }
@@ -898,14 +899,14 @@ contract FarmUpgradeable is Initializable, AccessControlUpgradeable, ReentrancyG
     /* ========== Admin Functions ========== */
 
     /**
-     * @dev Internal function to distribute rewards via Vault
+     * @dev Internal function to distribute rewards via StakingVault
      * @param to Recipient address
      * @param amount Reward amount
      * @return success Whether the reward was distributed
      */
     function _distributeReward(address to, uint256 amount) internal returns (bool success) {
         if (amount == 0) return true;
-        return vault.distributeReward(to, amount);
+        return stakingVault.distributeReward(to, amount);
     }
 
     /**
@@ -1133,6 +1134,12 @@ contract FarmUpgradeable is Initializable, AccessControlUpgradeable, ReentrancyG
         if (nftManager_ == address(0)) revert ZeroAddress();
         _nftManager = nftManager_;
         emit NFTManagerUpdated(nftManager_);
+    }
+
+    function setStakingVault(address stakingVault_) external onlyRole(OPERATOR_ROLE) {
+        if (stakingVault_ == address(0)) revert ZeroAddress();
+        stakingVault = IStakingVault(stakingVault_);
+        emit StakingVaultUpdated(stakingVault_);
     }
 
     /**

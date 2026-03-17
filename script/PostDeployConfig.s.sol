@@ -5,6 +5,7 @@ import "forge-std/Script.sol";
 import "forge-std/console.sol";
 
 import {Vault} from "src/Vault/Vault.sol";
+import {StakingVault} from "src/Vault/StakingVault.sol";
 import {FarmUpgradeable} from "src/Farm/Farm.sol";
 import {PUSDOracleUpgradeable} from "src/Oracle/PUSDOracle.sol";
 import {ReferralRewardManager} from "src/Referral/ReferralRewardManager.sol";
@@ -27,6 +28,7 @@ import {NFTManager} from "src/token/NFTManager/NFTManager.sol";
 contract PostDeployConfig is Script {
     // Contract addresses (from .env)
     address public vault;
+    address public stakingVault;
     address public farm;
     address public oracle;
     address public referralManager;
@@ -41,6 +43,7 @@ contract PostDeployConfig is Script {
     function run() external {
         // Load deployed addresses
         vault = vm.envAddress("VAULT");
+        stakingVault = vm.envOr("STAKING_VAULT", address(0));
         farm = vm.envAddress("FARM");
         oracle = vm.envAddress("ORACLE");
         referralManager = vm.envOr("REFERRAL_MANAGER", address(0));

@@ -116,6 +116,7 @@ interface IFarm {
     event SystemConfigUpdated(uint256 oldMinDeposit, uint256 newMinDeposit, uint256 oldMinLock, uint256 newMinLock, uint256 oldMaxStakes, uint256 newMaxStakes, uint256 oldMaxHistory, uint256 newMaxHistory);
 
     event NFTManagerUpdated(address indexed nftManager);
+    event StakingVaultUpdated(address indexed stakingVault);
 
     // Pool management events
     event PoolCreated(uint256 indexed poolId, string name, uint256 lockPeriod, uint256 cap);

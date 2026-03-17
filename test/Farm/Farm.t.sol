@@ -8,6 +8,7 @@ import {MockOracle} from "test/mocks/MockOracle.sol";
 import {FarmUpgradeable} from "src/Farm/Farm.sol";
 import {NFTManager} from "src/token/NFTManager/NFTManager.sol";
 import {Vault} from "src/Vault/Vault.sol";
+import {StakingVault} from "src/Vault/StakingVault.sol";
 import {yPUSD} from "src/token/yPUSD/yPUSD.sol";
 import {IFarm} from "src/interfaces/IFarm.sol";
 import {Farm_Deployer_Base} from "script/Farm/base/Farm_Deployer_Base.sol";
@@ -22,6 +23,7 @@ contract FarmIntegrationTest is Test, Farm_Deployer_Base {
     FarmUpgradeable farm;
     NFTManager nftManager;
     Vault vault;
+    StakingVault stakingVault;
     ERC20Mock pusd;
     yPUSD ypusd;
     ERC20Mock usdt;
@@ -83,10 +85,19 @@ contract FarmIntegrationTest is Test, Farm_Deployer_Base {
         vault.setFarmAddress(address(farm));
         vault.addAsset(address(usdt), "USDT");
         
-        // Add reward reserve: mint PUSD and approve to vault
+        // Deploy StakingVault
+        StakingVault stakingVaultImpl = new StakingVault();
+        bytes memory stakingVaultInitData = abi.encodeCall(
+            StakingVault.initialize,
+            (admin, address(pusd), address(farm))
+        );
+        stakingVault = StakingVault(address(new ERC1967Proxy(address(stakingVaultImpl), stakingVaultInitData)));
+        farm.setStakingVault(address(stakingVault));
+        
+        // Add reward reserve: mint PUSD and approve to stakingVault
         pusd.mint(admin, INITIAL_BALANCE * 100);
-        pusd.approve(address(vault), INITIAL_BALANCE * 100);
-        vault.addRewardReserve(INITIAL_BALANCE * 100);
+        pusd.approve(address(stakingVault), INITIAL_BALANCE * 100);
+        stakingVault.addRewardReserve(INITIAL_BALANCE * 100);
 
         // Create pools for each lock period
         farm.createPool("30D-Pool", 30 days, 0, 10000);
@@ -322,14 +333,14 @@ contract FarmIntegrationTest is Test, Farm_Deployer_Base {
         vm.warp(block.timestamp + 31 days);
 
         IFarm.StakeRecord memory recordBefore = nftManager.getStakeRecord(tokenId);
-        uint256 reserveBefore = vault.getRewardReserve();
+        uint256 reserveBefore = stakingVault.getRewardReserve();
 
         // Renew - rewards are automatically compounded
         vm.prank(user1);
         farm.renewStake(tokenId, 30 days);
 
         IFarm.StakeRecord memory recordAfter = nftManager.getStakeRecord(tokenId);
-        uint256 reserveAfter = vault.getRewardReserve();
+        uint256 reserveAfter = stakingVault.getRewardReserve();
         
         // Amount should have increased due to compounding
         uint256 compoundedReward = recordAfter.amount - recordBefore.amount;

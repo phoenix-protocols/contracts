@@ -9,6 +9,7 @@ import {PUSD} from "src/token/PUSD/PUSD.sol";
 import {yPUSD} from "src/token/yPUSD/yPUSD.sol";
 import {NFTManager} from "src/token/NFTManager/NFTManager.sol";
 import {Vault} from "src/Vault/Vault.sol";
+import {StakingVault} from "src/Vault/StakingVault.sol";
 import {FarmUpgradeable} from "src/Farm/Farm.sol";
 import {PUSDOracleUpgradeable} from "src/Oracle/PUSDOracle.sol";
 import {ReferralRewardManager} from "src/Referral/ReferralRewardManager.sol";
@@ -30,7 +31,8 @@ import {IERC20} from "@openzeppelin/contracts/token/ERC20/IERC20.sol";
  * 4. Vault (depends on PUSD, NFTManager)
  * 5. PUSDOracle (depends on Vault, PUSD)
  * 6. Farm (depends on PUSD, yPUSD, Vault)
- * 7. ReferralRewardManager (depends on PUSD)
+ * 7. StakingVault (depends on PUSD, Farm)
+ * 8. ReferralRewardManager (depends on PUSD)
  * 9. MessageManager (depends on Farm)
  */
 contract FullDeploy is Script {
@@ -39,6 +41,7 @@ contract FullDeploy is Script {
     yPUSD public ypusd;
     NFTManager public nftManager;
     Vault public vault;
+    StakingVault public stakingVault;
     FarmUpgradeable public farm;
     PUSDOracleUpgradeable public oracle;
     ReferralRewardManager public referralManager;
@@ -98,11 +101,15 @@ contract FullDeploy is Script {
         farm = _deployFarm(admin, address(pusd), address(ypusd), address(vault));
         console.log("Farm deployed at:", address(farm));
 
-        // 7. Deploy ReferralRewardManager (depends on PUSD)
+        // 7. Deploy StakingVault (depends on PUSD, Farm)
+        stakingVault = _deployStakingVault(admin, address(pusd), address(farm));
+        console.log("StakingVault deployed at:", address(stakingVault));
+
+        // 8. Deploy ReferralRewardManager (depends on PUSD)
         referralManager = _deployReferral(admin, address(pusd));
         console.log("ReferralRewardManager deployed at:", address(referralManager));
 
-        // 8. Deploy MessageManager (depends on Farm as poolManager)
+        // 9. Deploy MessageManager (depends on Farm as poolManager)
         messageManager = _deployMessageManager(admin, address(farm));
         console.log("MessageManager deployed at:", address(messageManager));
 
@@ -125,6 +132,10 @@ contract FullDeploy is Script {
         farm.setNFTManager(address(nftManager));
         console.log("Farm.setNFTManager done");
 
+        // Farm -> StakingVault
+        farm.setStakingVault(address(stakingVault));
+        console.log("Farm.setStakingVault done");
+
         // Grant MINTER_ROLE to Farm
         pusd.grantRole(pusd.MINTER_ROLE(), address(farm));
         console.log("PUSD.grantRole(MINTER_ROLE, farm) done");
@@ -142,6 +153,7 @@ contract FullDeploy is Script {
         console.log("yPUSD:          ", address(ypusd));
         console.log("NFTManager:     ", address(nftManager));
         console.log("Vault:          ", address(vault));
+        console.log("StakingVault:   ", address(stakingVault));
         console.log("PUSDOracle:     ", address(oracle));
         console.log("Farm:           ", address(farm));
         console.log("ReferralManager:", address(referralManager));
@@ -241,6 +253,19 @@ contract FullDeploy is Script {
         ERC1967Proxy proxy = new ERC1967Proxy{salt: proxySalt}(address(impl), initData);
         
         return FarmUpgradeable(address(proxy));
+    }
+
+    function _deployStakingVault(address admin_, address pusd_, address farm_) internal returns (StakingVault) {
+        // Deploy impl with CREATE2
+        bytes32 implSalt = _implSalt("StakingVault");
+        StakingVault impl = new StakingVault{salt: implSalt}();
+        
+        // Deploy proxy with CREATE2
+        bytes memory initData = abi.encodeCall(StakingVault.initialize, (admin_, pusd_, farm_));
+        bytes32 proxySalt = _proxySalt("StakingVault");
+        ERC1967Proxy proxy = new ERC1967Proxy{salt: proxySalt}(address(impl), initData);
+        
+        return StakingVault(address(proxy));
     }
 
     function _deployReferral(address admin_, address pusd_) internal returns (ReferralRewardManager) {

@@ -70,16 +70,6 @@ contract VaultStorage {
     /* ========== Temporary storage ========== */
     mapping(address => bool) internal _tempAssetCheck; // Temporary asset check mapping
 
-    /* ========== Reward Reserve ========== */
-    uint256 public rewardReserve; // PUSD reserve for staking rewards
-
-    /* ========== Reward Reserve Events ========== */
-    event RewardReserveAdded(address indexed from, uint256 amount, uint256 newTotal);
-    event RewardReserveWithdrawn(address indexed to, uint256 amount, uint256 newTotal);
-    event RewardDistributed(address indexed to, uint256 amount, uint256 remainingReserve);
-    event RewardCompounded(uint256 amount, uint256 remainingReserve);
-    event InsufficientRewardReserve(uint256 required, uint256 available);
-
     // PlaceHolder
-    uint256[49] private __gap;
+    uint256[50] private __gap;
 }

@@ -29,7 +29,11 @@ contract NFTManagerStorage {
     event MinterRoleLocked(address indexed account, address indexed admin);
     event FarmUpdated(address indexed newFarm);
     event VaultUpdated(address indexed newVault);
+    event TokenFrozen(uint256 indexed tokenId, bool frozen);
+
+    // tokenId => frozen status (frozen NFTs cannot be transferred)
+    mapping(uint256 => bool) public frozen;
 
     // Reserved storage gap for future upgrades
-    uint256[50] private __gap;
+    uint256[49] private __gap;
 }

@@ -40,36 +40,8 @@ contract MockVault {
         return _paused;
     }
 
-    /// @notice Mock distributeReward - just transfer PUSD to recipient
-    function distributeReward(address to, uint256 amount) external returns (bool) {
-        if (address(pusdToken) != address(0) && pusdToken.balanceOf(address(this)) >= amount) {
-            pusdToken.transfer(to, amount);
-            return true;
-        }
-        return false;
-    }
-
-    /// @notice Mock compoundReward - deduct from reserve but keep in vault
-    function compoundReward(uint256 amount) external returns (bool) {
-        // For mock, just return true if we have enough balance
-        if (address(pusdToken) != address(0) && pusdToken.balanceOf(address(this)) >= amount) {
-            return true;
-        }
-        return false;
-    }
-    
-    /// @notice Mock withdrawPUSDTo - transfer PUSD to recipient
-    function withdrawPUSDTo(address to, uint256 amount) external {
-        if (address(pusdToken) != address(0) && pusdToken.balanceOf(address(this)) >= amount) {
-            pusdToken.transfer(to, amount);
-        }
-    }
-    
-    /// @notice Mock getRewardReserve
-    function getRewardReserve() external view returns (uint256) {
-        if (address(pusdToken) == address(0)) return 0;
-        return pusdToken.balanceOf(address(this));
-    }
+    // NOTE: distributeReward, compoundReward, withdrawPUSDTo, getRewardReserve
+    // moved to MockStakingVault
 
     /// @notice Mock withdrawTo
     function withdrawTo(address to, address token, uint256 amount) external {

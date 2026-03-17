@@ -4,6 +4,7 @@ pragma solidity ^0.8.20;
 import "../interfaces/IPUSD.sol";
 import "../interfaces/IyPUSD.sol";
 import "../interfaces/IVault.sol";
+import "../interfaces/IStakingVault.sol";
 import {IFarm} from "../interfaces/IFarm.sol";
 
 abstract contract FarmStorage is IFarm {
@@ -11,7 +12,7 @@ abstract contract FarmStorage is IFarm {
 
     IPUSD public pusdToken; // PUSD stablecoin contract
     IyPUSD public ypusdToken; // yPUSD yield token contract
-    IVault public vault; // Fund vault contract
+    IVault public vault; // Treasury vault contract (underlying assets + protocol revenue)
     address public _nftManager; // NFT Manager contract address
 
     /* ========== Permission Roles ========== */
@@ -65,6 +66,9 @@ abstract contract FarmStorage is IFarm {
     address public bridgeMessenger;
     mapping(uint256 => bool) public isSupportedBridgeChain; // Supported bridge destination chains
 
+    /* ========== New Variables (append only, do not insert!) ========== */
+    IStakingVault public stakingVault; // Staking vault contract (staked principal + reward reserve)
+
     // PlaceHolder
-    uint256[50] private __gap;
+    uint256[49] private __gap;
 }
