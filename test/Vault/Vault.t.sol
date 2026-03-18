@@ -698,7 +698,7 @@ contract VaultTest is Test, Vault_Deployer_Base {
     function test_UUPSUpgradeAndNewLogic() public {
         // 1. Only admin can upgradeToAndCall
         vm.startPrank(admin);
-        vaultV2 = _upgrade(address(vault), "");
+        vaultV2 = _upgrade(address(vault), "", bytes32("TEST_SALT"));
         vm.stopPrank();
 
         // 2. Old data should be preserved

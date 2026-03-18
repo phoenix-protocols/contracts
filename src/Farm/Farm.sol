@@ -392,6 +392,53 @@ contract FarmUpgradeable is Initializable, AccessControlUpgradeable, ReentrancyG
     }
 
     /**
+     * @notice Claim accumulated rewards without unstaking
+     * @dev Allows users to claim rewards while keeping principal locked.
+     *      Rewards are calculated based on time elapsed since last claim.
+     *      Only rewards accumulated within the lock period are claimable.
+     * @param tokenId Stake record ID (NFT token ID)
+     */
+    function claimReward(uint256 tokenId) external nonReentrant whenNotPaused {
+        NFTManager nftManager = NFTManager(_nftManager);
+        
+        // 1. Check ownership
+        if (nftManager.ownerOf(tokenId) != msg.sender) revert NotOwner();
+
+        // 2. Get and validate stake record
+        StakeRecord memory stakeRecord = nftManager.getStakeRecord(tokenId);
+        if (!stakeRecord.active) revert InactiveStake();
+
+        // 3. Calculate rewards (only within lock period, per existing logic)
+        uint256 reward = _calculateStakeReward(stakeRecord);
+        uint256 totalReward = reward + stakeRecord.pendingReward;
+        
+        // 4. Check if there are rewards to claim
+        if (totalReward == 0) revert InvalidAmount();
+
+        // 5. Update state BEFORE external call (CEI pattern)
+        uint256 unlockTime = stakeRecord.startTime + stakeRecord.lockPeriod;
+        // Update lastClaimTime: cap at unlockTime to prevent future over-claiming
+        stakeRecord.lastClaimTime = block.timestamp <= unlockTime ? block.timestamp : unlockTime;
+        stakeRecord.pendingReward = 0;
+        
+        // 6. Persist state to NFTManager
+        nftManager.updateStakeRecord(tokenId, stakeRecord);
+
+        // 7. Distribute rewards (external call last)
+        bool success = _distributeReward(msg.sender, totalReward);
+        if (!success) revert LowReserve();
+
+        // 8. Update user action time
+        UserAssetInfo storage userInfo = userAssets[msg.sender];
+        if (userInfo.lastActionTime == 0) {
+            totalUsers++;
+        }
+        userInfo.lastActionTime = block.timestamp;
+
+        emit StakeRewardsClaimed(msg.sender, tokenId, totalReward);
+    }
+
+    /**
      * @notice Unified stake query function (merged version)
      * @param account User address
      * @param queryType Query type: 
